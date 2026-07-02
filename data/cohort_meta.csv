@@ -1,0 +1,9 @@
+Cage,Sex,Rank_prebaseline,Food,Location,Days_to_stable,Rank_postbaseline,SpoutX,SpoutY
+9,M,"3,2,1",restr,top,6,"3,1,2",300,520
+10,F,"2,1,3",restr,top,6,"2,1,3",280,550
+11,M,"1,3,2",ctrl,top,3,"1,3,2",200,520
+12,F,"1,2,3",restr,bot,4,"1,2,3",1020,520
+13,M,"1,3,2",restr,bot,3,"1,3,2",210,520
+14,F,"3,2,1",ctrl,bot,11,"3,2,1",220,505
+15,M,"2,1,3",ctrl,bot,3,"2,1,3",250,530
+16,F,"3,1,2",ctrl,top,6,"1,3,2",,
