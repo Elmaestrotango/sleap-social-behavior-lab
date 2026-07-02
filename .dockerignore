@@ -1,0 +1,10 @@
+.venv/
+.git/
+__pycache__/
+**/__pycache__/
+*.pyc
+__marimo__/
+.marimo.db
+data/_scratch/
+*.egg-info/
+.DS_Store

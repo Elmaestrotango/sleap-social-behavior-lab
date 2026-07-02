@@ -42,24 +42,22 @@ cell updates automatically. To just *view* a notebook without editing:
 uv run marimo run notebooks/03_clustering.py
 ```
 
-## Run in the browser (molab)
+## Run in the browser (no install for students)
 
-No local install required — [molab](https://molab.marimo.io) runs these notebooks on a free
-cloud kernel. It uses a **real Python** environment (`uv`-managed), so `numba` / `umap-learn` /
-`hdbscan` install and run normally.
+Give students a browser experience with nothing to install. All the options below use a **real
+Python kernel**, so `numba` / `umap-learn` / `hdbscan` work. The WebAssembly / GitHub-Pages
+export does **not** — those libraries have no in-browser (Pyodide) build and lessons 03–06 need
+them, so a static WASM site would break at the clustering notebook.
 
-1. Push this repo to GitHub.
-2. In molab, create a GitHub-synced notebook from this repo. Confirm the file tree shows
-   `notebooks/`, `course/`, and `data/` together — the notebooks import `course_utils` from
-   `course/` and load the bundled `data/`, so all three must be present.
-3. Open `notebooks/01_load_sleap.py` and run. Each notebook declares its dependencies inline
-   (a PEP&nbsp;723 `# /// script` block at the top, pinned to match `pyproject.toml`), so molab
-   installs the correct versions automatically.
-
-> The WebAssembly export (`marimo export html-wasm`) and GitHub-Pages hosting will **not** work
-> for this course: `numba`, `umap-learn`, and `hdbscan` have no in-browser (Pyodide) builds, and
-> notebook 03 onward depends on them. Use molab (or a self-hosted `marimo edit`) for a browser
-> experience with a real kernel.
+- **One link for the whole course (recommended).** `serve.py` publishes a landing page plus all
+  six lessons in order under a single URL, each with its own isolated kernel per visitor. Try it
+  with `uv run python serve.py` (→ <http://localhost:7860>), then host it free on a Hugging Face
+  Docker Space or self-host behind a tunnel. See [`DEPLOY.md`](DEPLOY.md).
+- **One notebook at a time.** [molab](https://molab.marimo.io) runs a single notebook on a free
+  cloud kernel; each notebook declares its dependencies inline (a PEP&nbsp;723 `# /// script`
+  block pinned to `pyproject.toml`), so `uv` installs the right versions automatically. You upload
+  `course/` and `data/` alongside the notebook. Fine for a quick share, but it's per-notebook
+  links, not one course site.
 
 ## What's in `data/`
 
