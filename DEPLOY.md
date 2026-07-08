@@ -1,9 +1,9 @@
 # Deploying the course as one link
 
-`serve.py` publishes the whole course — a landing page plus all six lessons in order — from a
+`serve.py` publishes the whole course — a landing page plus all eight lessons in order — from a
 **single URL**, using marimo's ASGI app server. It runs a **real Python kernel** (not
 WebAssembly), so `numba` / `umap-learn` / `hdbscan` work — unlike a GitHub-Pages / WASM export,
-which has no in-browser build for those and would break at lesson 03.
+which has no in-browser build for those and would break at the map lesson (05).
 
 Each visitor gets their own **isolated kernel session**; they share the machine's CPU/RAM.
 
@@ -13,14 +13,14 @@ Each visitor gets their own **isolated kernel session**; they share the machine'
 uv run python serve.py        # -> http://localhost:7860
 ```
 
-Open the URL and click through lessons 1–6.
+Open the URL and click through lessons 1–8.
 
 ## What students see
 
 Lessons are served in **run (app) mode**: markdown, plots, and every UI widget (sliders, the
 labeling click-grid) work and re-run reactively, but the source code is read-only. That's ideal
 for a class — nobody can corrupt a lesson, and sessions are isolated. If you want students to
-*edit code*, have them run locally (`uv run marimo edit notebooks/01_load_sleap.py`) or use molab.
+*edit code*, have them run locally (`uv run marimo edit notebooks/01_raw_signal.py`) or use molab.
 
 ## Option A — Hugging Face Space (free, HF hosts it)
 
@@ -76,14 +76,16 @@ and the bundled data from this repo on first run), so there is nothing to upload
 For each lesson: open <https://molab.marimo.io>, create a notebook **from a GitHub URL**, and
 paste the lesson's URL (use the raw URL if molab asks for the file directly):
 
-- 01 — `https://github.com/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/01_load_sleap.py`
-- 02 — `.../notebooks/02_features.py`
-- 03 — `.../notebooks/03_clustering.py`
-- 04 — `.../notebooks/04_rank_stats.py`
-- 05 — `.../notebooks/05_label_exemplars.py`
-- 06 — `.../notebooks/06_mlp_inference.py`
+- 01 — `https://github.com/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/01_raw_signal.py`
+- 02 — `.../notebooks/02_body_eye_view.py`
+- 03 — `.../notebooks/03_signal_in_time.py`
+- 04 — `.../notebooks/04_collapse_pca.py`
+- 05 — `.../notebooks/05_collapse_map.py`
+- 06 — `.../notebooks/06_reading_the_map.py`
+- 07 — `.../notebooks/07_behavior_in_time.py`
+- 08 — `.../notebooks/08_decoder_graduates.py`
 
-Give students the six molab links in order. First run in each notebook installs the pinned
+Give students the eight molab links in order. First run in each notebook installs the pinned
 packages (from the inline PEP 723 block) and downloads the data — a minute or two — then it's
 cached for that session. Note molab notebooks are public-but-undiscoverable by default.
 

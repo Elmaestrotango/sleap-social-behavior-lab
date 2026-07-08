@@ -14,14 +14,20 @@ gives you both a **rank** axis (Dom / Mid / Sub) and an experimental **condition
 
 ## What you'll build
 
-| # | Notebook | You learn | You produce |
-|---|----------|-----------|-------------|
-| 01 | `load_sleap` | What SLEAP outputs; the keypoint tensor `(frames, mice, nodes, xy)`; why identity matters | Load & visualize a real `.slp`; scrub the skeleton |
-| 02 | `features` | Turning raw keypoints into **allocentric** social features (center + rotate into one animal's body frame) | A per-event interpretable feature vector |
-| 03 | `clustering` | PCA, covariate **residualization**, **UMAP**, **HDBSCAN**; the role of every hyperparameter | A live 2-D behavioral map you can re-cluster in real time |
-| 04 | `rank_stats` | Testing clusters for **rank** and **condition** enrichment (χ², Bonferroni) | The rank-associated behavioral clusters |
-| 05 | `label_exemplars` | Turning clusters into labeled training data; ethogram building | Your own **aggression / not-aggression** labels via a click grid |
-| 06 | `mlp_inference` | Training an **MLP** classifier and evaluating it on a **held-out cage** | Predicted-aggression clips + ROC/PR on unseen data |
+The course runs as **eight** reactive notebooks. Each row links straight to a free
+[molab](https://molab.marimo.io) cloud kernel — click **Run** to open that lesson in the browser
+(nothing to install; each notebook self-bootstraps its data).
+
+| # | Notebook | You learn | You produce | Run |
+|---|----------|-----------|-------------|-----|
+| 01 | `01_raw_signal` | What SLEAP outputs; the keypoint tensor `(frames, mice, nodes, xy)`; why a track slot ≠ an identity | Load & visualize a real `.slp`; scrub the skeleton; audit swaps at contact | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/01_raw_signal.py) |
+| 02 | `02_body_eye_view` | Turning raw keypoints into **body-frame (egocentric)** social features (center + rotate into one animal's frame) | A per-event interpretable 19-feature vector, arena-invariant | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/02_body_eye_view.py) |
+| 03 | `03_signal_in_time` | Reading the signal in value, **time & frequency** (Morlet wavelet), and **who-leads-whom** (lead-lag) — with honest nulls | A rhythm spectrogram + a shuffle-tested coordination estimate | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/03_signal_in_time.py) |
+| 04 | `04_collapse_pca` | **PCA** and the dimensionality of behavior; covariate **residualization** as a *choice* | The ~6-axis behavioral manifold; the aggression cost of dropping PC1 | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/04_collapse_pca.py) |
+| 05 | `05_collapse_map` | **UMAP** + **HDBSCAN**; the role of every hyperparameter; hierarchical subclustering | A 2-D behavioral map carved into data-driven **syllables** | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/05_collapse_map.py) |
+| 06 | `06_reading_the_map` | Cluster **enrichment** for condition / sex / rank (χ², Bonferroni) — and the **pseudoreplication** reversal | Which effects survive when the *cage* is the unit | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/06_reading_the_map.py) |
+| 07 | `07_behavior_in_time` | The **transition grammar** (Markov chain) and **activity clock** of a continuously-tracked cage, vs a shuffle null | A transition matrix + stationary distribution + a bootstrapped daily rhythm | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/07_behavior_in_time.py) |
+| 08 | `08_decoder_graduates` | Training an **MLP** and evaluating it on a **held-out cage**; the same pipeline on a neural raster | Predicted-aggression clips + ROC/PR on unseen Cage 16 | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/08_decoder_graduates.py) |
 
 Each notebook shows the **equations** behind the method (e.g. the UMAP objective, PCA
 eigendecomposition) and a short **why-we-use-this** justification, not just code.
@@ -32,33 +38,34 @@ Install [uv](https://docs.astral.sh/uv/) (a fast Python package manager), then:
 
 ```bash
 uv sync                       # create the environment (Python 3.11)
-uv run marimo edit notebooks/01_load_sleap.py
+uv run marimo edit notebooks/01_raw_signal.py
 ```
 
-Work through `01 → 06` in order. In marimo, edit any cell or drag any slider and every dependent
+Work through `01 → 08` in order. In marimo, edit any cell or drag any slider and every dependent
 cell updates automatically. To just *view* a notebook without editing:
 
 ```bash
-uv run marimo run notebooks/03_clustering.py
+uv run marimo run notebooks/05_collapse_map.py
 ```
 
 ## Run in the browser (no install for students)
 
 Give students a browser experience with nothing to install. All the options below use a **real
 Python kernel**, so `numba` / `umap-learn` / `hdbscan` work. The WebAssembly / GitHub-Pages
-export does **not** — those libraries have no in-browser (Pyodide) build and lessons 03–06 need
-them, so a static WASM site would break at the clustering notebook.
+export does **not** — those libraries have no in-browser (Pyodide) build and lessons 05–08 need
+them, so a static WASM site would break at the map notebook.
 
 - **One link for the whole course (recommended).** `serve.py` publishes a landing page plus all
-  six lessons in order under a single URL, each with its own isolated kernel per visitor. Try it
+  eight lessons in order under a single URL, each with its own isolated kernel per visitor. Try it
   with `uv run python serve.py` (→ <http://localhost:7860>), then host it free on a Hugging Face
   Docker Space or self-host behind a tunnel. See [`DEPLOY.md`](DEPLOY.md).
 - **One notebook at a time (molab).** [molab](https://molab.marimo.io) runs a single notebook on
-  a free cloud kernel. Point it at a lesson's GitHub URL and run — each notebook declares its
-  dependencies inline (a PEP&nbsp;723 `# /// script` block pinned to `pyproject.toml`) and
-  **self-bootstraps**: if it can't find a local checkout it downloads `course_utils.py` and the
-  bundled data straight from this repo, so there's nothing to upload. It's one link *per lesson*
-  rather than one course site — students open `01`…`06` in turn. See [`DEPLOY.md`](DEPLOY.md).
+  a free cloud kernel (the **Run** links in the lesson table above point straight to each one).
+  Each notebook declares its dependencies inline (a PEP&nbsp;723 `# /// script` block pinned to
+  `pyproject.toml`) and **self-bootstraps**: if it can't find a local checkout it downloads
+  `course_utils.py` and the bundled data straight from this repo, so there's nothing to upload.
+  It's one link *per lesson* rather than one course site — students open `01`…`08` in turn. See
+  [`DEPLOY.md`](DEPLOY.md).
 
 ## What's in `data/`
 
@@ -68,9 +75,9 @@ Small, self-contained, no video required (everything renders skeletons on a blan
   `(N, T, 3, 15, 2)` (mice ordered *approacher, approachee, bystander*), per-mouse ranks, condition,
   and a registry label where one exists.
 - `heldout_events.npz` — events from a **held-out cage** (camera 16) with ground-truth aggression
-  labels, for honest evaluation in notebook 06.
+  labels, for honest evaluation in notebook 08.
 - `answer_key.csv` — ground-truth categories for the training events (a grading aid / fallback for
-  the labeling notebook).
+  the labeling step in notebook 08).
 - `cohort_meta.csv` — per-cage metadata (sex, rank order, condition).
 - `raw_slp/example_*.slp` — a few short real SLEAP clips for notebook 01.
 

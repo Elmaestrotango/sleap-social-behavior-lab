@@ -24,12 +24,14 @@ def _(mo):
 
         | # | Lesson | What you build |
         |---|--------|----------------|
-        | 1 | [Load SLEAP data](/01) | Load & scrub a real `.slp`; the keypoint tensor `(frames, mice, nodes, xy)` |
-        | 2 | [Features](/02) | Allocentric social feature vectors (center + rotate into a body frame) |
-        | 3 | [Clustering](/03) | A live PCA → residualize → UMAP → HDBSCAN behavioral map |
-        | 4 | [Rank stats](/04) | Rank / condition-enriched clusters (χ², Bonferroni) |
-        | 5 | [Label exemplars](/05) | Your own aggression / not-aggression labels via a click grid |
-        | 6 | [MLP inference](/06) | Train an MLP; evaluate it on a held-out cage |
+        | 1 | [The Raw Signal](/01) | Load & scrub a real `.slp`; the keypoint tensor `(frames, mice, nodes, xy)`; why identity matters |
+        | 2 | [The Body's-Eye View](/02) | Allocentric social feature vectors (center + rotate into a body frame) |
+        | 3 | [The Signal in Time](/03) | Distributions, wavelet rhythm, and who-leads-whom coordination — with honest nulls |
+        | 4 | [The Collapse I — PCA](/04) | The behavioral manifold; residualization as a *choice* |
+        | 5 | [The Collapse II — the Map](/05) | A UMAP behavioral map carved into data-driven syllables |
+        | 6 | [Reading the Map](/06) | Cluster enrichment done honestly (χ², Bonferroni, the pseudoreplication reversal) |
+        | 7 | [Behavior in Time](/07) | The transition grammar and activity clock (Markov chain vs shuffle null) |
+        | 8 | [The Decoder Graduates](/08) | Train an MLP; unlock held-out Cage 16; decode the neural cousin |
 
         ---
         Mice are colored by dominance **rank**: 🔴 Dom &nbsp;&nbsp; 🔵 Mid &nbsp;&nbsp; 🟢 Sub.

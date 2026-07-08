@@ -332,7 +332,19 @@ def residualize(scores, drop_pcs):
 
 
 def run_umap(X, n_neighbors=15, min_dist=0.1, n_components=2, seed=42):
-    """UMAP embedding. n_neighbors = local vs global balance; min_dist = cluster tightness."""
+    """Live UMAP embedding — HARD-DISABLED in the student path. A cold molab kernel spends ~30s in
+    UMAP's numba JIT and the websocket times out, hanging the app, so NB05 must SELECT a precomputed
+    embedding from ``load_umap_sweep()['emb_grid'][i, j]`` instead of ever calling this.
+
+    Reachable only for instructors who export ``COURSE_ALLOW_LIVE_UMAP=1`` (e.g. when regenerating
+    the sweep via tools/build_umap_sweep.py); otherwise it raises RuntimeError. ``import umap`` is
+    kept lazy (inside this guard) so ``import course_utils`` succeeds with no umap-learn installed."""
+    if os.environ.get("COURSE_ALLOW_LIVE_UMAP") != "1":
+        raise RuntimeError(
+            "Live UMAP is disabled in the student path (it JIT-compiles ~30s on a cold molab "
+            "kernel and hangs the app). Select a precomputed embedding from "
+            "load_umap_sweep()['emb_grid'][i, j] instead. Instructors regenerating the sweep can "
+            "set the environment variable COURSE_ALLOW_LIVE_UMAP=1 to re-enable this.")
     import umap
     reducer = umap.UMAP(n_neighbors=int(n_neighbors), min_dist=float(min_dist),
                         n_components=int(n_components), random_state=int(seed))
@@ -349,7 +361,11 @@ def run_hdbscan(emb, min_cluster_size=30, min_samples=None):
 
 
 # Canonical defaults (tuned on the bundled data to expose a Dom-enriched aggression cluster).
-# Notebooks 03/04/05 all reference these so their clusterings agree.
+# Notebooks 03/04/05 all reference these so their clusterings agree. These are the EXACT knobs that
+# built data/umap_sweep.npz: n_neighbors=15 == nn_values[1] and min_dist=0.0 == md_values[0] pick the
+# pinned default cell emb_grid[default_ij] (default_ij == [1, 0]), and min_cluster_size=15 (no
+# min_samples) reproduces the shipped sweep default_labels EXACTLY. So a student running
+# run_hdbscan(emb_grid[tuple(default_ij)], min_cluster_size=15) sees the SAME clusters as the canon.
 CLUSTER_DEFAULTS = dict(pca_k=10, drop_pcs=(0, 2), n_neighbors=15,
                         min_dist=0.0, min_cluster_size=15, seed=42)
 

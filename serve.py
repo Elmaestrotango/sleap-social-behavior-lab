@@ -27,14 +27,16 @@ os.chdir(_HERE)
 
 _NB = os.path.join(_HERE, "notebooks")
 
-# Landing page at "/", then the six lessons in order at /01 .. /06.
+# Landing page at "/", then the eight lessons in order at /01 .. /08.
 _LESSONS = [
-    ("/01", "01_load_sleap.py"),
-    ("/02", "02_features.py"),
-    ("/03", "03_clustering.py"),
-    ("/04", "04_rank_stats.py"),
-    ("/05", "05_label_exemplars.py"),
-    ("/06", "06_mlp_inference.py"),
+    ("/01", "01_raw_signal.py"),
+    ("/02", "02_body_eye_view.py"),
+    ("/03", "03_signal_in_time.py"),
+    ("/04", "04_collapse_pca.py"),
+    ("/05", "05_collapse_map.py"),
+    ("/06", "06_reading_the_map.py"),
+    ("/07", "07_behavior_in_time.py"),
+    ("/08", "08_decoder_graduates.py"),
 ]
 
 _builder = marimo.create_asgi_app().with_app(path="", root=os.path.join(_HERE, "home.py"))
