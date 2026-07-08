@@ -9,19 +9,22 @@ Run once with a python that has numpy/pandas/cv2 + the despotism approach_behavi
 
     /home/itang/miniconda3/bin/python tools/build_dataset.py
 
-Source: cohort 20260222_{pre,dep,post} — one despotism pre / dep(rivation) / post experiment, so
-`condition` is a real independent variable. Held-out cage = camera 16 (leave-one-cage-out for the
-inference notebook). Per event we keep only a short keypoint window (world coords, mice ordered
-[approacher, approachee, bystander]) + its per-mouse ranks + condition + registry label. No video.
+Source: two food-deprivation cohorts (20260222 and 12192025), each {pre,dep,post}, so `condition`
+(pre / dep(rivation) / post) is a real independent variable AND `sex` gets genuine cross-cohort
+replication (cage numbers collide across cohorts, so cohort is tracked explicitly — see
+cohort_meta.csv and build_derived.py). Held-out cage = camera 16 (present ONLY in 20260222;
+leave-one-cage-out for the inference notebook). Per event we keep only a short keypoint window
+(world coords, mice ordered [approacher, approachee, bystander]) + its per-mouse ranks + condition +
+registry label. No video.
 
 It also writes data/_scratch/slp_todo.json listing a few (cohort, stem, frame) to trim into tiny
 .slp files for the 'load SLEAP' notebook — run tools/trim_slp.py (sleap-io env) afterward.
 """
-import os, sys, json, shutil
+import os, sys, json
 import numpy as np
 import pandas as pd
 
-ID_DIR = "/home/itang/notebooks-kay/despotism/id_switch"
+ID_DIR = "/home/itang/notebooks-kay/despotism/hcm"
 sys.path.insert(0, ID_DIR)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "course"))
 from utils import approach_behavior as ab   # noqa: E402
@@ -30,17 +33,25 @@ import course_utils as cu                    # noqa: E402  (for the feature-sign
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.abspath(os.path.join(HERE, "..", "data"))
 SCRATCH = os.path.join(DATA, "_scratch")
-COHORTS = ["20260222_pre", "20260222_dep", "20260222_post"]
-META_CSV = "/snlkt/isaac/id_switch/despotism/cohort_meta/hcm_mouse_cohort_meta_20260222.csv"
-HELDOUT_CAM = "16"
+COHORTS = ["20260222_pre", "20260222_dep", "20260222_post",
+           "12192025_pre", "12192025_dep", "12192025_post"]
+# One cohort_meta CSV per cohort DATE. Cage numbers (9,10,...) COLLIDE across cohorts and even carry
+# different sexes, so we never key by bare cage — the combined data/cohort_meta.csv adds a `cohort`
+# column and build_derived.py looks sex up by (cohort, cage).
+META_CSVS = {
+    "20260222": "/snlkt/isaac/id_switch/despotism/cohort_meta/hcm_mouse_cohort_meta_20260222.csv",
+    "12192025": "/snlkt/isaac/id_switch/despotism/cohort_meta/hcm_mouse_cohort_meta_12192025.csv",
+}
+HELDOUT_CAM = "16"                   # only 20260222 has cam16 -> held-out set is single-cohort
 PAD_BEFORE, WINDOW = 40, 90          # T = 130 frames (~2.6 s @ 50 fps)
 T = PAD_BEFORE + WINDOW
 SEED = 7
 rng = np.random.RandomState(SEED)
 
-# per-set caps (kept small so the committed bundle is a few tens of MB)
-TRAIN_CAPS = dict(aggression=450, mlp_fp=300, other=250, background=500)
-HELD_CAPS = dict(aggression=180, mlp_fp=80, other=60, background=150)
+# per-set caps — raised for the 2-cohort bundle so both cohorts and both sexes are well represented
+# (stratified() spreads by cohort). Kept so the committed bundle stays well under the 60 MB budget.
+TRAIN_CAPS = dict(aggression=800, mlp_fp=500, other=400, background=800)
+HELD_CAPS = dict(aggression=300, mlp_fp=130, other=100, background=250)
 OTHER_CATS = ["bystander_ledge", "anogenital", "side_kissing", "grooming", "mounting",
               "tail_bite", "double_ledge"]
 
@@ -69,6 +80,21 @@ def load_background():
     if "contact_s" in df.columns:
         df = df[df["contact_s"] >= 1.0]
     return df
+
+
+def write_cohort_meta(path):
+    """Read every cohort's meta CSV, tag it with a `cohort` (date) column, align columns (the extra
+    Rank_postbaseline that only 20260222 carries is NaN-filled for the others), concat, and write the
+    combined table. `cohort` + `Cage` together identify a physical cage; sex must be looked up by that
+    pair, never by bare Cage (cage numbers collide and even flip sex across cohorts)."""
+    frames = []
+    for date, csv in META_CSVS.items():
+        m = pd.read_csv(csv)
+        m.insert(0, "cohort", date)
+        frames.append(m)
+    combined = pd.concat(frames, ignore_index=True, sort=False)   # union of cols, NaN-fill missing
+    combined.to_csv(path, index=False)
+    return combined
 
 
 def stratified(df, n, by="cohort"):
@@ -199,8 +225,9 @@ def main():
     pd.DataFrame([{"event_key": r["event_key"], "category": r["category"],
                    "agg_label": r["agg_label"]} for r in train]).to_csv(
         os.path.join(DATA, "answer_key.csv"), index=False)
-    shutil.copy(META_CSV, os.path.join(DATA, "cohort_meta.csv"))
-    print("  wrote answer_key.csv, cohort_meta.csv")
+    meta = write_cohort_meta(os.path.join(DATA, "cohort_meta.csv"))
+    print(f"  wrote answer_key.csv, cohort_meta.csv ({len(meta)} rows, "
+          f"cohorts={sorted(meta['cohort'].unique().tolist())})")
 
     # pick a few events (one aggression per condition + one heldout) to trim into demo .slp files
     todo = []

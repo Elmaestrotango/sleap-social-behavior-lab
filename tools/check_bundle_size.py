@@ -15,7 +15,9 @@ def main():
     total = 0
     rows = []
     for dp, _, fs in os.walk(DATA):
-        if "_scratch" in dp:
+        # skip underscore-prefixed scratch/cache dirs (data/_scratch, data/_neural_cache) — they are
+        # gitignored build caches, not part of the committed bundle we budget.
+        if any(part.startswith("_") for part in os.path.relpath(dp, DATA).split(os.sep)):
             continue
         for f in fs:
             p = os.path.join(dp, f)
