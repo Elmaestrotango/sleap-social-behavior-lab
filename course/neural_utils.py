@@ -608,3 +608,181 @@ def kymograph_fig(kymo, title="", xlabel="Position (px)", ylabel="Time (frames)"
     fig.update_yaxes(autorange="reversed", title=ylabel)
     fig.update_xaxes(title=xlabel)
     return _apply(fig, title, height)
+
+
+# ============================================================================ seaborn-style interactive plotly
+# Round-3 directive 5, mirrored from course_utils for the neural notebooks: every distribution
+# comparison shows the RAW individual points, interactively, in the house style — no bare bar charts.
+# Generic (no rank coloring): a neutral qualitative palette; pass `colors` to override per group.
+_QUAL_PALETTE = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#72b7b2",
+                 "#eeca3b", "#b279a2", "#ff9da6", "#9d755d", "#bab0ac"]
+
+
+def _group_colors(order, colors=None):
+    """Map each group label -> hex color: explicit `colors` dict (keyed by label or its str) wins,
+    else a cycled qualitative palette."""
+    out = {}
+    for i, g in enumerate(order):
+        if colors and g in colors:
+            out[g] = colors[g]
+        elif colors and str(g) in colors:
+            out[g] = colors[str(g)]
+        else:
+            out[g] = _QUAL_PALETTE[i % len(_QUAL_PALETTE)]
+    return out
+
+
+def _group_order(groups, group_order=None):
+    return list(group_order) if group_order is not None else list(dict.fromkeys(np.asarray(groups).tolist()))
+
+
+def strip_points_fig(values, groups, group_order=None, colors=None, jitter=0.09,
+                     point_size=6, opacity=0.7, show_mean=True, hover=None,
+                     title="", xlabel="", ylabel="value", height=430, seed=0):
+    """Categorical strip plot: every individual data point, jittered horizontally, colored by group,
+    with hover — the honest replacement for a bar-of-means. A short line marks each group mean.
+    `values` (N,) numeric; `groups` (N,) labels; optional `hover` (N,) per-point text."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float); groups = np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    rng = np.random.RandomState(seed)
+    hv = None if hover is None else np.asarray(hover)
+    fig = go.Figure()
+    for i, g in enumerate(order):
+        m = groups == g
+        yv = values[m]; keep = np.isfinite(yv); yv = yv[keep]
+        x = i + (rng.rand(len(yv)) - 0.5) * 2 * jitter
+        txt = [str(t) for t in hv[m][keep]] if hv is not None else None
+        fig.add_scatter(x=x, y=yv, mode="markers", name=str(g),
+                        marker=dict(size=point_size, color=cmap[g], opacity=opacity,
+                                    line=dict(width=0.5, color="white")),
+                        text=txt,
+                        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                       f"{g}: %{{y:.3f}}<extra></extra>"))
+        if show_mean and len(yv):
+            mu = float(np.nanmean(yv))
+            fig.add_scatter(x=[i - 0.28, i + 0.28], y=[mu, mu], mode="lines",
+                            line=dict(color=cmap[g], width=3), showlegend=False,
+                            hovertemplate=f"{g} mean: {mu:.3f}<extra></extra>")
+    fig.update_xaxes(tickmode="array", tickvals=list(range(len(order))),
+                     ticktext=[str(g) for g in order], title=xlabel)
+    fig.update_yaxes(title=ylabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def violin_points_fig(values, groups, group_order=None, colors=None, points="all",
+                      show_box=True, title="", xlabel="", ylabel="value", height=450):
+    """Violin (kernel-density silhouette) per group with the raw points overlaid and a mean line."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float); groups = np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    fig = go.Figure()
+    for g in order:
+        yv = values[groups == g]; yv = yv[np.isfinite(yv)]
+        fig.add_trace(go.Violin(y=yv, name=str(g), line_color=cmap[g], fillcolor=cmap[g],
+                                opacity=0.45, points=points, pointpos=0, jitter=0.35,
+                                box_visible=show_box, meanline_visible=True,
+                                marker=dict(size=5, opacity=0.6)))
+    fig.update_yaxes(title=ylabel); fig.update_xaxes(title=xlabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def box_points_fig(values, groups, group_order=None, colors=None, title="",
+                   xlabel="", ylabel="value", height=450):
+    """Box-and-whisker per group with ALL points overlaid (jittered)."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float); groups = np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    fig = go.Figure()
+    for g in order:
+        yv = values[groups == g]; yv = yv[np.isfinite(yv)]
+        fig.add_trace(go.Box(y=yv, name=str(g), boxpoints="all", jitter=0.4, pointpos=0,
+                             marker=dict(size=4, color=cmap[g], opacity=0.6),
+                             line=dict(color=cmap[g]), fillcolor="rgba(0,0,0,0)"))
+    fig.update_yaxes(title=ylabel); fig.update_xaxes(title=xlabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def kde2d_fig(x, y, gridsize=120, colorscale="Viridis", show_points=True, point_color="#333333",
+              hover=None, title="", xlabel="x", ylabel="y", height=480, bw_method=None):
+    """2-D density via scipy.stats.gaussian_kde: a filled contour of where (x, y) pairs concentrate,
+    with the raw points optionally overlaid."""
+    import plotly.graph_objects as go
+    from scipy.stats import gaussian_kde
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    ok = np.isfinite(x) & np.isfinite(y); x, y = x[ok], y[ok]
+    kde = gaussian_kde(np.vstack([x, y]), bw_method=bw_method)
+    xi = np.linspace(x.min(), x.max(), gridsize); yi = np.linspace(y.min(), y.max(), gridsize)
+    XX, YY = np.meshgrid(xi, yi)
+    Z = kde(np.vstack([XX.ravel(), YY.ravel()])).reshape(XX.shape)
+    fig = go.Figure(go.Contour(x=xi, y=yi, z=Z, colorscale=colorscale,
+                               contours=dict(coloring="fill"), colorbar=dict(title="density")))
+    if show_points:
+        txt = None if hover is None else [str(t) for t in np.asarray(hover)[ok]]
+        fig.add_scatter(x=x, y=y, mode="markers",
+                        marker=dict(size=3, color=point_color, opacity=0.35),
+                        text=txt, showlegend=False,
+                        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                       "%{x:.2f}, %{y:.2f}<extra></extra>"))
+    fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+def ecdf_fig(values, groups=None, group_order=None, colors=None, title="",
+             xlabel="value", ylabel="cumulative fraction", height=430):
+    """Empirical CDF, one step curve per group: F(v) = fraction of the group at or below v."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float)
+    groups = np.zeros(len(values), int) if groups is None else np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    fig = go.Figure()
+    for g in order:
+        yv = np.sort(values[groups == g][np.isfinite(values[groups == g])])
+        if not len(yv):
+            continue
+        cy = np.arange(1, len(yv) + 1) / len(yv)
+        fig.add_scatter(x=yv, y=cy, mode="lines", name=str(g),
+                        line=dict(color=cmap[g], width=2, shape="hv"))
+    fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel, range=[0, 1.02])
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def umap_colored_by_feature_fig(emb, feature_values, name="feature", colorscale="Viridis",
+                                point_size=5, opacity=0.85, hover=None, title=None,
+                                height=520, robust=True):
+    """Scatter of a precomputed 2-D embedding (emb (N,2)) colored by one continuous feature — for
+    giving low-D map axes meaning. `feature_values` (N,) numeric; `robust` clips the color scale to
+    the 2nd/98th percentile."""
+    import plotly.graph_objects as go
+    emb = np.asarray(emb, float); v = np.asarray(feature_values, float)
+    cmin = cmax = None
+    if robust and np.isfinite(v).any():
+        cmin, cmax = [float(z) for z in np.nanpercentile(v, [2, 98])]
+    txt = None if hover is None else [str(t) for t in np.asarray(hover)]
+    fig = go.Figure(go.Scattergl(
+        x=emb[:, 0], y=emb[:, 1], mode="markers",
+        marker=dict(size=point_size, color=v, colorscale=colorscale, cmin=cmin, cmax=cmax,
+                    opacity=opacity, colorbar=dict(title=name), line=dict(width=0)),
+        text=txt,
+        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                       f"{name}=%{{marker.color:.3f}}<extra></extra>")))
+    fig.update_xaxes(title="dim-1", showticklabels=False)
+    fig.update_yaxes(title="dim-2", showticklabels=False)
+    fig.update_layout(template="plotly_white", height=height,
+                      title=title or f"embedding colored by {name}",
+                      margin=dict(l=10, r=10, t=50, b=10))
+    return fig

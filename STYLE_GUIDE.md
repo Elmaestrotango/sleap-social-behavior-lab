@@ -170,3 +170,145 @@ This is a prose / exercise / figure revision. Do **not** touch:
   `hide_code` on prose cells, sliders placed adjacent to their output via `mo.vstack`.
 
 **Re-verify each notebook exports headless after revising.**
+
+---
+---
+
+# Round 3 (consolidation + depth)
+
+Everything in Sections 1–9 above still applies (plain formal diction; WHY → DEFINITIONS → METHOD;
+no "Hero" branding; mice colored by rank via `cu.RANK_HEX`; fill-in-the-blank exercises; define all
+jargon; `hide_code` prose; sliders adjacent via `mo.vstack`; **no live UMAP on the real data**;
+molab-safety). Layer these directives on top.
+
+The course is being **consolidated 14 → 10 notebooks** (5 behavior + 5 neural) and substantially
+**deepened**: each notebook targets **~4 hours** of genuine work, not ~10 minutes. Do not pad — add
+real EDA, worked steps, deeper "what and why" prose, and the new methods below.
+
+## R3.1 Remove the readout board / counter entirely
+
+Delete the two-gauge "size of representation / readiness" panels (`readout_fig`, the Gauge-A/B
+Indicators, `data/readout_board.csv` usage) from **every** notebook. Replace with a
+**question-driven throughline**: each notebook **opens** by briefly recalling the question the
+previous notebook answered and stating the question **this** notebook asks, and **closes** by stating
+the answer reached and the next question it raises. A logical chain of scientific questions, not a
+numeric tracker. (Section 8's Gauge-A bug note is now moot — the board is gone.)
+
+## R3.2 We are neuroscientists
+
+We **are** neuroscientists; we study behavior first and neural correlates second. Remove any wording
+that treats the behavioral work as aspiring-to or validated-by "real" neuroscience ("with the same
+rigor as neuroscientists", "this is how neuroscientists do it" used as external validation, etc.).
+Write confidently in the **first person plural** ("we quantify…", "we ask…").
+
+## R3.3 Much longer, deeper notebooks (~4 h each)
+
+Expand every notebook: more EDA, more worked steps, deeper prose, and the extra methods below.
+
+## R3.4 Lean heavily on GIFs in every behavior notebook
+
+Students learn by **seeing** behavior. Use `cu.event_gif_bytes` / `cu.grid_gif_bytes` /
+`cu.gif_img_html` generously and specifically: exemplars of each cluster, high- vs low-frequency
+events, a correlated (interacting) pair vs an uncorrelated pair, each behavioral state, and decoder
+correct-vs-mistaken predictions. Candidate event indices are pinned in the PREP contract. Neural
+notebooks: lean on the real microscope movies / rasters.
+
+## R3.5 Richer, interactive, seaborn-style plots
+
+Stop defaulting to bar charts. Show **individual data points**, interactive (hover). Use the new
+seaborn-style plotly helpers (added to `course_utils.py`, mirrored generic ones in `neural_utils.py`):
+`strip_points_fig`, `violin_points_fig`, `box_points_fig`, `kde2d_fig`, `ecdf_fig`,
+`umap_colored_by_feature_fig`. Every distribution comparison shows the raw points, not just a summary
+bar. House style: `template="plotly_white"`, tight margins, clear titles, colorbars; mice colored
+Dom=red/Int=blue/Sub=green (the helpers auto-map rank names to `cu.RANK_HEX`).
+
+## R3.6 UMAP: show the objective function (notebook 4)
+
+Explain and **demonstrate** what UMAP optimizes: high-D fuzzy neighbor memberships vs low-D
+memberships, the cross-entropy objective, attractive (neighbors pull) and repulsive (non-neighbors
+push) forces. Use `cu.umap_objective_toy(...)` — a small, fast, **pure-numpy** interactive toy
+(~90 points) that optimizes a 2-D layout live and returns snapshots + the membership/force curves.
+This does **not** violate no-live-UMAP: the real 2499-point map still comes from the precomputed
+sweep (`cu.load_umap_sweep()`); only the tiny teaching toy runs live (`< 1 s`, no umap-learn).
+
+## R3.7 Cluster in feature space so the map axes MEAN something
+
+Do not present UMAP as a black box. Color the map by each of the 19 features
+(`cu.umap_colored_by_feature_fig`) so students see which features vary across the map; show a
+per-cluster **feature profile** (which features are high/low per cluster) with seaborn-style displays;
+render exemplar GIFs per cluster; make the cluster figures resemble a real analysis (colored by
+cluster, clear density, feature overlays).
+
+## R3.8 Gradual Python-skill ramp across the exercises
+
+Build coding skill progressively across the 10 notebooks **and** within each: array indexing/slicing
+(`kp[frame, mouse, node]`) → array arithmetic + boolean masks → writing a small function → a loop then
+its vectorized form → calling a library (numpy stats, sklearn). **State which Python skill each
+exercise practices.**
+
+## R3.9 Very verbose code annotation in exercises
+
+For every line the student edits: a comment stating exactly what to change and **why it matters
+scientifically**. Guide them to the edit, describe the expected plot, explain the reasoning.
+Over-comment rather than under-comment.
+
+## R3.10 New 2-cohort data + the real sex finding
+
+The dataset now has **two food-deprivation cohorts** (do **NOT** name the project). Cage identity is
+**cohort-unique** and `cu.load_derived('train')` has a `'cohort'` field and a cohort-unique `'cage'`
+field. Notebook 4's statistics section teaches a **real, replicated** finding
+(`heading_alignment` sex difference survives cage-level testing) with a **positive control** and a
+**negative control** (`appr_body_len`, body size / dimorphism, fails → the pseudoreplication lesson).
+Use the pinned values exactly.
+
+---
+
+## R3 Pinned values (re-verified against committed bundle `4d79758`, cohort names deliberately not the project)
+
+- **train** N = **2499**, aggression base rate **0.320**; **heldout** N = **780** (`cam16`, single
+  cohort, **all female**), base rate **0.385**.
+- **Two cohorts** (identified only by their date tags `12192025` and `20260222`):
+  counts **1282 + 1217**; conditions **pre=824 / dep=896 / post=779**.
+- **Cage identity is cohort-unique** = `cohort_index*100 + cam`. **Train cages = 9–15 and 109–115**
+  (7 + 7 = **14 cages**, balanced **7 M / 7 F**). ⚠ **Correction:** the draft directive said
+  "9–**16**"; the actual train cages are **9–15**. Cage **16** is the **held-out** `cam16` (cohort
+  `20260222`, all female). Events: **1181 M / 1318 F**. `load_derived('train')` keys include
+  `cohort`, `cage`, `sex`.
+- **PCA:** 6-PC cumulative EVR = **0.714** (first-6 EVR = `[.178, .168, .129, .092, .082, .064]`).
+  The shipped 10-component PCA caps at **0.889**, so reaching 90% variance needs **11 PCs**
+  (refit a full-rank `PCA(n_components=19)` on the standardized X to show this; cum@10 = 0.889,
+  cum@11 = 0.915).
+- **UMAP sweep:** `agg_lift` = **1.19×** (base 0.320); **4 clusters** at the default cell
+  (`emb_grid[tuple(default_ij)]`, `default_ij = [1,0]`). Canonical clusters = the sweep
+  `default_labels`. Cluster sizes / aggression fractions: c0 = 53/0.377, c1 = 149/0.322,
+  c2 = 1423/0.297, **c3 = 730/0.381 (purest / largest aggression-enriched)**.
+- **Aggression decoder (logistic):** train 5-fold CV AUROC = **0.851 ± 0.006**; `cam16` held-out
+  AUROC = **0.873**; **leave-one-cohort-out** AUROC = **0.825** (test cohort `20260222`) /
+  **0.859** (test cohort `12192025`) — use LOCO as the honest cross-dataset generalization test
+  (notebook 5).
+- **THE SEX FINDING (real, survives cage-level → notebook 4):** feature `heading_alignment`
+  (Cohen d **0.23**, **M < F**: median M ≈ −0.14, F ≈ +0.05). Event-level Mann–Whitney
+  **p = 6.5e-9**; **cage-level permutation** (14 cohort-unique cages, shuffle sex, statistic =
+  |mean of per-cage feature means, M − F|) **p_emp = 0.0094 → SURVIVES**; replicates in **both**
+  cohorts (event MWU p = 3.7e-9 and p = 0.015).
+  **NEGATIVE CONTROL:** `appr_body_len` (body size / dimorphism) event p = **5.4e-22** BUT
+  cage-level permutation p = **0.078 → does NOT survive** (the pseudoreplication lesson, now with a
+  positive **and** a negative control side by side). Aggression-rate-by-sex is **null**
+  (event χ² p = **0.60**, cage-level null by every test).
+  ⚠ **Do not use `cu.permutation_test` for this feature-by-sex test** — that helper tests a
+  categorical composition (e.g. is a cluster sex-enriched) and returns a different p (0.0006). The
+  cage-level number authors should reproduce (0.0094) comes from permuting sex across the 14 cages
+  after collapsing each cage to its mean `heading_alignment` (see the PREP contract for the exact
+  snippet).
+- **FOOD-DEP effect (survives → notebook 4):** feature `bystander_dist_mean`; event Mann–Whitney
+  **p = 6.8e-6** (median **359 → 469 px** under deprivation); **cage-level paired Wilcoxon**
+  (14 cages, pre vs dep means) **p = 0.0052** (mean **+48 px** under dep), replicates both cohorts.
+  Aggression rate pre vs dep is **null** (event p = 0.29).
+
+## R3 New helpers added to `course_utils.py` (and generic ones mirrored in `neural_utils.py`)
+
+Seaborn-style interactive plotly (plotly + numpy + scipy only, `plotly_white`, hover, rank auto-color
+where mice are grouped): `strip_points_fig`, `violin_points_fig`, `box_points_fig`, `kde2d_fig`,
+`ecdf_fig`, `umap_colored_by_feature_fig`. UMAP-objective teaching toy (pure numpy, `< 1 s`, no
+umap-learn): `umap_objective_toy` (+ `umap_objective_layout_fig`). Exact signatures and one-line
+usage examples are in the PREP contract.

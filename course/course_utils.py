@@ -984,3 +984,308 @@ def roc_pr_fig(y, scores):
     fig.add_scatter(x=rec, y=prec, mode="lines", row=1, col=2, line=dict(color="#e45756"), showlegend=False)
     fig.update_layout(template="plotly_white", height=360, margin=dict(l=10, r=10, t=40, b=10))
     return fig
+
+
+# ============================================================================ seaborn-style interactive plotly
+# Round-3 directive 5: stop defaulting to bar charts. Every distribution comparison shows the RAW
+# individual points, interactively (hover), in the house style. These are seaborn-equivalent displays
+# (strip / violin+points / box+points / 2-D KDE / ECDF) built in pure plotly+numpy+scipy, plus a
+# UMAP-feature-overlay scatter so the map axes can be given meaning (directive 7).
+_QUAL_PALETTE = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#72b7b2",
+                 "#eeca3b", "#b279a2", "#ff9da6", "#9d755d", "#bab0ac"]
+
+
+def _group_colors(order, colors=None):
+    """Map each group label -> hex color. Precedence: explicit `colors` dict (keyed by the label or
+    its str) > rank auto-detect (Dom/Mid/Int/Sub -> cu.RANK_HEX, so mouse-rank coloring stays the
+    house scheme) > a cycled qualitative palette. `order` is the ordered list of unique group labels."""
+    rank_by_name = {"Dom": RANK_HEX[1], "Mid": RANK_HEX[2], "Int": RANK_HEX[2],
+                    "Sub": RANK_HEX[3], "?": RANK_HEX[0], "unknown": RANK_HEX[0]}
+    out = {}
+    for i, g in enumerate(order):
+        gs = str(g)
+        if colors and g in colors:
+            out[g] = colors[g]
+        elif colors and gs in colors:
+            out[g] = colors[gs]
+        elif gs in rank_by_name:
+            out[g] = rank_by_name[gs]
+        else:
+            out[g] = _QUAL_PALETTE[i % len(_QUAL_PALETTE)]
+    return out
+
+
+def _group_order(groups, group_order=None):
+    return list(group_order) if group_order is not None else list(dict.fromkeys(np.asarray(groups).tolist()))
+
+
+def strip_points_fig(values, groups, group_order=None, colors=None, jitter=0.09,
+                     point_size=6, opacity=0.7, show_mean=True, hover=None,
+                     title="", xlabel="", ylabel="value", height=430, seed=0):
+    """Categorical strip plot: EVERY individual data point, jittered horizontally, colored by group,
+    with a hover readout — the honest replacement for a bar-of-means. A short horizontal line marks
+    each group mean. `values` (N,) numeric; `groups` (N,) categorical labels; optional `hover` (N,)
+    per-point text (e.g. event index). Returns a plotly Figure."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float); groups = np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    rng = np.random.RandomState(seed)
+    hv = None if hover is None else np.asarray(hover)
+    fig = go.Figure()
+    for i, g in enumerate(order):
+        m = groups == g
+        yv = values[m]; keep = np.isfinite(yv); yv = yv[keep]
+        x = i + (rng.rand(len(yv)) - 0.5) * 2 * jitter
+        txt = [str(t) for t in hv[m][keep]] if hv is not None else None
+        fig.add_scatter(x=x, y=yv, mode="markers", name=str(g),
+                        marker=dict(size=point_size, color=cmap[g], opacity=opacity,
+                                    line=dict(width=0.5, color="white")),
+                        text=txt,
+                        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                       f"{g}: %{{y:.3f}}<extra></extra>"))
+        if show_mean and len(yv):
+            mu = float(np.nanmean(yv))
+            fig.add_scatter(x=[i - 0.28, i + 0.28], y=[mu, mu], mode="lines",
+                            line=dict(color=cmap[g], width=3), showlegend=False,
+                            hovertemplate=f"{g} mean: {mu:.3f}<extra></extra>")
+    fig.update_xaxes(tickmode="array", tickvals=list(range(len(order))),
+                     ticktext=[str(g) for g in order], title=xlabel)
+    fig.update_yaxes(title=ylabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def violin_points_fig(values, groups, group_order=None, colors=None, points="all",
+                      show_box=True, title="", xlabel="", ylabel="value", height=450):
+    """Violin (kernel-density silhouette) per group with the raw points overlaid and a mean line —
+    shows the full shape of each distribution AND every observation. Args as `strip_points_fig`."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float); groups = np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    fig = go.Figure()
+    for g in order:
+        yv = values[groups == g]; yv = yv[np.isfinite(yv)]
+        fig.add_trace(go.Violin(y=yv, name=str(g), line_color=cmap[g], fillcolor=cmap[g],
+                                opacity=0.45, points=points, pointpos=0, jitter=0.35,
+                                box_visible=show_box, meanline_visible=True,
+                                marker=dict(size=5, opacity=0.6)))
+    fig.update_yaxes(title=ylabel); fig.update_xaxes(title=xlabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def box_points_fig(values, groups, group_order=None, colors=None, title="",
+                   xlabel="", ylabel="value", height=450):
+    """Box-and-whisker per group with ALL points overlaid (jittered) — quartiles plus every raw
+    observation. Args as `strip_points_fig`."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float); groups = np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    fig = go.Figure()
+    for g in order:
+        yv = values[groups == g]; yv = yv[np.isfinite(yv)]
+        fig.add_trace(go.Box(y=yv, name=str(g), boxpoints="all", jitter=0.4, pointpos=0,
+                             marker=dict(size=4, color=cmap[g], opacity=0.6),
+                             line=dict(color=cmap[g]), fillcolor="rgba(0,0,0,0)"))
+    fig.update_yaxes(title=ylabel); fig.update_xaxes(title=xlabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def kde2d_fig(x, y, gridsize=120, colorscale="Viridis", show_points=True, point_color="#333333",
+              hover=None, title="", xlabel="x", ylabel="y", height=480, bw_method=None):
+    """2-D density via scipy.stats.gaussian_kde: a filled contour of where (x, y) pairs concentrate,
+    with the raw points optionally overlaid. Use it for two-feature joint distributions (e.g. speed
+    vs distance) instead of an opaque scatter. `x`, `y` (N,) numeric. Returns a plotly Figure."""
+    import plotly.graph_objects as go
+    from scipy.stats import gaussian_kde
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    ok = np.isfinite(x) & np.isfinite(y); x, y = x[ok], y[ok]
+    kde = gaussian_kde(np.vstack([x, y]), bw_method=bw_method)
+    xi = np.linspace(x.min(), x.max(), gridsize); yi = np.linspace(y.min(), y.max(), gridsize)
+    XX, YY = np.meshgrid(xi, yi)
+    Z = kde(np.vstack([XX.ravel(), YY.ravel()])).reshape(XX.shape)
+    fig = go.Figure(go.Contour(x=xi, y=yi, z=Z, colorscale=colorscale,
+                               contours=dict(coloring="fill"), colorbar=dict(title="density")))
+    if show_points:
+        txt = None if hover is None else [str(t) for t in np.asarray(hover)[ok]]
+        fig.add_scatter(x=x, y=y, mode="markers",
+                        marker=dict(size=3, color=point_color, opacity=0.35),
+                        text=txt, showlegend=False,
+                        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                       "%{x:.2f}, %{y:.2f}<extra></extra>"))
+    fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+def ecdf_fig(values, groups=None, group_order=None, colors=None, title="",
+             xlabel="value", ylabel="cumulative fraction", height=430):
+    """Empirical cumulative distribution function, one step curve per group: F(v) = fraction of the
+    group at or below v. A crisp way to compare whole distributions (stochastic dominance) without
+    binning. `groups=None` plots a single curve. Returns a plotly Figure."""
+    import plotly.graph_objects as go
+    values = np.asarray(values, float)
+    groups = np.zeros(len(values), int) if groups is None else np.asarray(groups)
+    order = _group_order(groups, group_order)
+    cmap = _group_colors(order, colors)
+    fig = go.Figure()
+    for g in order:
+        yv = np.sort(values[groups == g][np.isfinite(values[groups == g])])
+        if not len(yv):
+            continue
+        cy = np.arange(1, len(yv) + 1) / len(yv)
+        fig.add_scatter(x=yv, y=cy, mode="lines", name=str(g),
+                        line=dict(color=cmap[g], width=2, shape="hv"))
+    fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel, range=[0, 1.02])
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
+    return fig
+
+
+def umap_colored_by_feature_fig(emb, feature_values, name="feature", colorscale="Viridis",
+                                point_size=5, opacity=0.85, hover=None, title=None,
+                                height=520, robust=True):
+    """Scatter of a PRECOMPUTED 2-D embedding (emb (N,2)) colored by one continuous feature — the
+    tool for giving UMAP axes meaning (directive 7). Overlay each of the 19 features in turn to see
+    which vary across the map. `feature_values` (N,) numeric; `name` labels the colorbar. `robust`
+    clips the color scale to the 2nd/98th percentile so a few outliers don't wash out the map.
+    Never runs UMAP — it only paints the precomputed layout. Returns a plotly Figure."""
+    import plotly.graph_objects as go
+    emb = np.asarray(emb, float); v = np.asarray(feature_values, float)
+    cmin = cmax = None
+    if robust and np.isfinite(v).any():
+        cmin, cmax = [float(z) for z in np.nanpercentile(v, [2, 98])]
+    txt = None if hover is None else [str(t) for t in np.asarray(hover)]
+    fig = go.Figure(go.Scattergl(
+        x=emb[:, 0], y=emb[:, 1], mode="markers",
+        marker=dict(size=point_size, color=v, colorscale=colorscale, cmin=cmin, cmax=cmax,
+                    opacity=opacity, colorbar=dict(title=name), line=dict(width=0)),
+        text=txt,
+        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                       f"{name}=%{{marker.color:.3f}}<extra></extra>")))
+    fig.update_xaxes(title="UMAP-1", showticklabels=False)
+    fig.update_yaxes(title="UMAP-2", showticklabels=False)
+    fig.update_layout(template="plotly_white", height=height,
+                      title=title or f"UMAP colored by {name}",
+                      margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+# ============================================================================ UMAP objective teaching toy
+def umap_objective_toy(n_per_blob=30, n_blobs=3, dim=8, blob_sep=6.0, blob_std=1.0,
+                       n_neighbors=10, n_epochs=250, lr=1.0, snapshot_every=50,
+                       grad_clip=4.0, eps=1e-3, seed=0):
+    """A tiny, fast, PURE-NUMPY demonstration of what UMAP actually optimizes — no umap-learn, so it
+    never trips the no-live-UMAP rule (that rule is about the real 2499-point map; this is a ~90-point
+    teaching toy that runs in well under a second).
+
+    It builds `n_blobs` Gaussian blobs in `dim`-dimensional space, converts high-D distances into
+    fuzzy neighbor memberships (the high-D graph UMAP tries to reproduce), then runs a short
+    attractive/repulsive gradient descent on a 2-D layout so a notebook can WATCH the layout organize
+    and can plot the two forces.
+
+    Method (matches UMAP's structure, simplified for teaching):
+      * high-D membership p_{j|i} = exp(-max(0, d_ij - rho_i) / sigma_i) over each point's k nearest
+        neighbors, where rho_i = distance to the nearest neighbor and sigma_i is set by binary search
+        so the row's memberships sum to log2(k); symmetrized to P = p + p^T - p*p^T (the fuzzy union).
+      * low-D similarity q_ij = 1 / (1 + ||y_i - y_j||^2) (the Student-t / Cauchy kernel with a=b=1).
+      * fuzzy cross-entropy loss CE = -sum P*log q + (1-P)*log(1-q); full-batch gradient
+        grad_i = sum_j 2 (y_i - y_j) [ P_ij q_ij - (1-P_ij) q_ij^2/(1-q_ij) ]. The first term is the
+        ATTRACTIVE force (neighbors pull together), the second is the REPULSIVE force (everything
+        pushes apart); gradients are norm-clipped to `grad_clip` for stability.
+
+    Returns a dict:
+      X_high (N,dim), labels (N,) blob id, P (N,N) high-D fuzzy membership,
+      snapshots list[(epoch, Y (N,2))] of the optimizing layout, Y_final (N,2),
+      loss_history (n_epochs,),
+      high_dist, high_membership : per-pair (upper triangle) high-D distance and P — the membership
+        curve UMAP fits,
+      low_dist, low_membership   : per-pair low-D distance and q at the final layout,
+      attractive, repulsive      : per-pair force magnitude (P*q and (1-P)*q^2/(1-q)) aligned with
+        low_dist, so a notebook can plot force-vs-distance (neighbors pull, non-neighbors push)."""
+    rng = np.random.RandomState(seed)
+    # 1. high-D blobs on a sphere of radius blob_sep so they are cleanly separated
+    centers = rng.randn(n_blobs, dim)
+    centers = centers / np.linalg.norm(centers, axis=1, keepdims=True) * blob_sep
+    X = np.vstack([centers[b] + rng.randn(n_per_blob, dim) * blob_std for b in range(n_blobs)])
+    labels = np.repeat(np.arange(n_blobs), n_per_blob)
+    N = len(X)
+    # 2. high-D pairwise distances
+    D = np.sqrt(np.maximum(0.0, ((X[:, None, :] - X[None, :, :]) ** 2).sum(-1)))
+    # 3. smooth-kNN fuzzy memberships
+    k = int(min(n_neighbors, N - 1))
+    target = np.log2(k)
+    P = np.zeros((N, N))
+    for i in range(N):
+        nbr = np.argsort(D[i])[1:k + 1]
+        d = D[i, nbr]; rho = d[0]
+        lo, hi = 1e-3, 1e3
+        for _ in range(40):                              # binary search sigma_i
+            sig = 0.5 * (lo + hi)
+            s = np.exp(-np.maximum(0.0, d - rho) / sig).sum()
+            if s > target:
+                hi = sig
+            else:
+                lo = sig
+        P[i, nbr] = np.exp(-np.maximum(0.0, d - rho) / sig)
+    P = P + P.T - P * P.T                                 # fuzzy union (symmetrize)
+    np.fill_diagonal(P, 0.0)
+    # 4. optimize a 2-D layout by full-batch fuzzy cross-entropy gradient descent
+    Y = rng.randn(N, 2) * 1e-2
+    snapshots = [(0, Y.copy())]
+    loss_history = []
+    for ep in range(1, n_epochs + 1):
+        diff = Y[:, None, :] - Y[None, :, :]             # (N,N,2)
+        d2 = (diff ** 2).sum(-1)                          # (N,N)
+        q = 1.0 / (1.0 + d2)
+        np.fill_diagonal(q, 0.0)
+        coeff = 2.0 * (P * q - (1.0 - P) * (q * q) / (1.0 - q + eps))
+        np.fill_diagonal(coeff, 0.0)
+        grad = (coeff[:, :, None] * diff).sum(axis=1)    # (N,2)
+        gn = np.linalg.norm(grad, axis=1, keepdims=True)
+        grad = np.where(gn > grad_clip, grad / gn * grad_clip, grad)
+        Y = Y - lr * grad
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ce = -(P * np.log(q + 1e-12) + (1 - P) * np.log(1 - q + 1e-12))
+        loss_history.append(float(np.nansum(np.triu(ce, 1))))
+        if ep % snapshot_every == 0 or ep == n_epochs:
+            snapshots.append((ep, Y.copy()))
+    # 5. membership / force curves (upper triangle, aligned)
+    iu = np.triu_indices(N, 1)
+    d2f = ((Y[:, None, :] - Y[None, :, :]) ** 2).sum(-1)
+    low_d = np.sqrt(d2f)[iu]; low_q = (1.0 / (1.0 + d2f))[iu]
+    high_P = P[iu]
+    return dict(X_high=X, labels=labels, P=P, snapshots=snapshots, Y_final=Y,
+                loss_history=np.asarray(loss_history),
+                high_dist=D[iu], high_membership=high_P,
+                low_dist=low_d, low_membership=low_q,
+                attractive=high_P * low_q,
+                repulsive=(1.0 - high_P) * low_q ** 2 / (1.0 - low_q + eps))
+
+
+def umap_objective_layout_fig(toy, snapshot=-1, title=None, height=460):
+    """Scatter one snapshot of `umap_objective_toy(...)`'s optimizing 2-D layout, colored by blob id
+    (the ground-truth cluster). `snapshot` indexes toy['snapshots'] (-1 = final). Lets a notebook
+    step through epochs and watch the blobs separate."""
+    import plotly.graph_objects as go
+    ep, Y = toy["snapshots"][snapshot]
+    lab = toy["labels"]
+    fig = go.Figure()
+    for b in sorted(set(lab.tolist())):
+        m = lab == b
+        fig.add_scatter(x=Y[m, 0], y=Y[m, 1], mode="markers", name=f"blob {b}",
+                        marker=dict(size=8, color=_QUAL_PALETTE[b % len(_QUAL_PALETTE)],
+                                    line=dict(width=0.5, color="white")))
+    fig.update_layout(template="plotly_white", height=height,
+                      title=title or f"UMAP toy layout — epoch {ep}",
+                      margin=dict(l=10, r=10, t=50, b=10))
+    fig.update_xaxes(showticklabels=False); fig.update_yaxes(showticklabels=False)
+    return fig
