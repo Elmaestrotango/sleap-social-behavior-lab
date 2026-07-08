@@ -58,26 +58,43 @@ def _(mo):
         r"""
         # NB10 · Extracting a Calcium Trace
 
-        > **WEEK 2 — THE NEURAL TWIN**
-        >
-        > Week 1 you read *behavior* out of pose. This week you run the **same computational moves**
-        > on the **brain**. Today's move mirrors **NB02 — The Body's-Eye View**.
-        >
-        > In NB02 you took a raw, high-dimensional signal (three mouse skeletons, ~11,700 raw numbers
-        > per event) and, by **choosing a point of view**, collapsed it into a handful of interpretable
-        > **features**. Choosing the body frame *was* the analysis: it decided what each number would
-        > mean.
-        >
-        > A miniscope movie is the imaging version of that same raw signal — **250,000 pixels per frame,
-        > over time**. Buried in it is a much simpler thing you actually want: **one cell's calcium
-        > trace**, a single number per frame that rises when the neuron fires. Getting there is the exact
-        > twin of NB02: strip the nuisance (here the static background, not the arena pose), then
-        > **choose a region of interest**. *Choosing an ROI is choosing a feature.* Where you put the box
-        > decides what the 1-D trace means.
+        **Week 2 — working with real neural recordings.**
 
-        The rig today: a head-mounted **miniscope** watching GCaMP-labeled striatal neurons in a moving
-        mouse (eLife article e28728). Raw, it is a shimmering 500×500 movie. By the end you will have
-        turned it into a clean trace of a single cell lighting up.
+        In Week 1 you measured behavior from pose keypoints: you started from a large raw signal
+        (three mouse skeletons) and reduced it to a small set of interpretable numbers. This week you
+        work with recordings of neural activity, and the overall approach is the same: start from a
+        large raw signal and reduce it to a few numbers you can interpret. This notebook does that for
+        an imaging movie of neurons in the brain.
+
+        ## Why this matters
+
+        To study how the brain produces social behavior, we need to measure what neurons are doing while
+        an animal behaves. One common way to do this is **calcium imaging**. Before we can relate neural
+        activity to behavior (later in Week 2), we first have to turn a raw imaging movie into a usable
+        measurement of one neuron's activity over time. That extraction step is the subject of today's
+        notebook.
+
+        ## Definitions (read these first)
+
+        - **Neuron firing.** When a neuron fires, calcium ions flow into the cell. So the amount of
+          calcium inside a cell rises briefly each time the cell is active, then falls back down.
+        - **GCaMP.** A protein sensor that scientists express in neurons. It glows brighter when it
+          binds calcium. Because calcium tracks firing, the brightness of a GCaMP-labeled neuron is a
+          **proxy for its activity**: brighter means more recently active.
+        - **Miniscope.** A small head-mounted microscope that records this glowing tissue as a video
+          while the mouse moves freely.
+        - **Calcium trace.** One number per movie frame that describes how bright a single cell is over
+          time. This is what we want to extract. Its rises are called calcium **transients**.
+        - **Region of interest (ROI).** A small patch of pixels we select in the image, here a box
+          placed over one cell. Averaging the pixels inside the box at each frame produces the trace.
+
+        ## Today's data and goal
+
+        We use a real miniscope movie of **striatal** neurons (from the open-access eLife article
+        e28728). The raw movie is a 500 x 500 video: 250,000 pixel values per frame, changing over time.
+        Our goal is to reduce it to a single clean calcium trace for one cell. The steps are: (1) view
+        the raw movie, (2) remove the static background, (3) find where the active cells are, and
+        (4) place an ROI to read out one cell's trace.
         """
     )
     return
@@ -88,16 +105,20 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 1. The raw signal — pixels over time
+        ## 1. The raw signal: pixels over time
 
-        We stream the striatum movie straight from eLife and **subsample** it: keep every 100th frame
-        (`step=100`), so ~9,000 raw frames become **90**. That is enough to see the structure and keeps
-        a bare cloud kernel honest — never load the whole movie into a Python loop.
+        **Why.** Before processing anything, look at the input. The raw miniscope movie is the
+        high-dimensional signal we will reduce, just as the raw skeletons were in Week 1.
 
-        This is the high-dimensional input, the twin of NB02's raw skeletons: each frame is a
-        **500 × 500 = 250,000-number** snapshot, and there are 90 of them. Scrub the slider and watch —
-        by eye, individual cells are almost impossible to pick out of the fixed glow. That glow is the
-        problem we solve next.
+        **Method.** We stream the striatum movie and **subsample** it: we keep every 100th frame
+        (`step=100`), so about 9,000 raw frames become **90**. Subsampling keeps enough frames to see
+        the structure while keeping memory and compute small. `nu.read_video(path, step=100)` reads the
+        video file and returns a `(90, 500, 500)` array of frames (its input is the file path; its
+        output is the stack of grayscale frames).
+
+        Each frame is a **500 x 500 = 250,000-value** image, and there are 90 of them. Move the slider
+        to scrub through the movie. Note that by eye it is hard to pick out individual cells: a fixed
+        bright glow covers the whole field. Removing that glow is the next step.
         """
     )
     return
@@ -136,13 +157,21 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 2. Strip the nuisance — background subtraction + z-score
+        ## 2. Remove the static background (background subtraction + z-score)
 
-        In NB02 the nuisance was **arena pose**: where in the cage, which way facing. Subtracting it
-        left only social geometry. Here the nuisance is the **static background** — the fixed pattern of
-        bright and dark that every frame shares (uneven illumination, out-of-focus tissue, the lens).
-        It carries no signal about *when a neuron fires*, so we remove it, exactly as `neural_utils`
-        does it:
+        **Why.** Most of what you see in the raw movie is unchanging: uneven illumination, out-of-focus
+        tissue, and the lens. This static pattern is the same in every frame, so it carries no
+        information about *when a neuron fires*. Removing it leaves only the part of the signal that
+        changes over time, which is the part we care about.
+
+        **Definitions.**
+
+        - **Background subtraction** means estimating the static part of the image and subtracting it,
+          so that only the changing part remains.
+        - **z-score** means rescaling each pixel to units of its own standard deviation, so pixels with
+          different baseline brightness become directly comparable.
+
+        **Method.** `nu.background_subtract(frames)` performs three operations:
 
         $$
         \text{bg} = \operatorname{median}_t(\text{frames}), \qquad
@@ -150,14 +179,16 @@ def _(mo):
         \text{fg} \leftarrow \frac{\text{fg} - \mu_{\text{px}}}{\sigma_{\text{px}}}
         $$
 
-        The **median over time** is the trick: a pixel sitting on inactive tissue looks the same in
-        almost every frame, so its median *is* the background; a pixel that occasionally flares when a
-        cell fires spends most frames dark, so the flare survives the subtraction. The per-pixel
-        z-score then puts every pixel on the same footing (units of its own standard deviation), so a
-        dim active cell isn't drowned out by a bright dead patch.
+        Its input is the `(90, 500, 500)` frame stack; its outputs are the `(500, 500)` background image
+        `bg` and the `(90, 500, 500)` z-scored foreground `fg`. Taking the **median over time** at each
+        pixel is the key idea: a pixel on inactive tissue looks the same in almost every frame, so its
+        median value *is* its background; a pixel that occasionally flares when a cell fires is dark in
+        most frames, so the flare survives the subtraction. The per-pixel z-score then puts every pixel
+        on the same scale, so a dim active cell is not overwhelmed by a bright inactive patch.
 
-        Left is the background we removed. Right is one **foreground** frame on a symmetric ±3σ scale —
-        the flat glow is gone and transient blobs (firing cells) pop out. Same slider drives both.
+        Below, the left panel is the background that was removed. The right panel is one foreground frame
+        on a symmetric ±3σ scale: the flat glow is gone, and short-lived bright spots (firing cells)
+        stand out. The same slider controls both.
         """
     )
     return
@@ -178,18 +209,23 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 3. Where are the cells? — the max-projection
+        ## 3. Where are the cells? The maximum projection
 
-        A single foreground frame catches whichever cells happen to be firing *at that instant*. To see
-        **every** cell that was ever active, collapse the whole movie to one image: take the
-        **maximum of |foreground| over time** at each pixel.
+        **Why.** A single foreground frame only shows the cells that happen to be firing at that one
+        instant. To decide where to place an ROI, we want a single image that shows **every** location
+        that was active at any point in the movie.
+
+        **Definition.** A **maximum projection** collapses a movie to one image by taking, at each
+        pixel, the largest value that pixel ever reached. Here we use the maximum of the absolute
+        foreground over time:
 
         $$\text{active}(y,x) = \max_t \big|\text{fg}(t,y,x)\big|$$
 
-        A pixel that ever flared shows up bright; a pixel that stayed at baseline stays dark. This is
-        our **map of candidate cells** — the thing you will point an ROI at in the next section. It is
-        the imaging analogue of NB02's feature table: a compact summary that tells you *where the
-        signal lives* before you commit to reading any one number.
+        **Method.** `np.abs(fg).max(axis=0)` takes the absolute value of the foreground (so both bright
+        and dark deviations count) and then takes the maximum across the time axis. Its input is the
+        `(90, 500, 500)` foreground; its output is a single `(500, 500)` image. A pixel that ever flared
+        appears bright; a pixel that stayed at baseline stays dark. This image is our **map of candidate
+        cells**, and it is where we will aim an ROI in the next section.
         """
     )
     return
@@ -213,22 +249,25 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 4. Choose an ROI = choose a feature
+        ## 4. Place an ROI to read out one cell
 
-        This is the beat that mirrors NB02 most directly. In NB02, choosing the body frame *defined*
-        what the 19 features meant. Here, **choosing where to put a small box defines what your 1-D
-        trace means.** Drop the box on a bright spot and the trace reads *that cell's* calcium; drop it
-        on empty tissue and the trace reads *noise*.
+        **Why.** We now have a map of where cells are, but we still want a single number per frame for
+        one specific cell. Choosing where to place the ROI box is what determines which cell (or which
+        piece of background) the trace describes.
 
-        The ROI trace is nothing more than the box-average of the foreground at every frame:
+        **Method.** The ROI trace is the average of the foreground inside the box at every frame:
 
         $$\text{trace}(t) = \operatorname{mean}_{y,x \in \text{ROI}} \text{fg}(t, y, x)$$
 
-        Slide the ROI center over the max-projection (left; the red box shows where you are). The 1-D
-        trace it extracts appears on the right, **live**. Aim the box at one of the bright blobs and
-        the trace grows sharp calcium transients; slide onto the dark background and it flattens into a
-        noisy line near zero. Remember image indexing is `[y, x]`, so `cx` moves the box horizontally
-        and `cy` vertically.
+        The function `roi_trace(fg, cx, cy, r=10)` (defined in the next cell) does exactly this. Its
+        inputs are the foreground stack and the box center `(cx, cy)` with half-width `r`; its output is
+        a `(90,)` trace, one value per frame.
+
+        Use the two sliders to move the ROI center over the active-cell map (left; the box marks the
+        current position). The trace it extracts appears on the right and updates live. When the box
+        sits on a bright spot, the trace shows sharp calcium transients; when it sits on dark
+        background, the trace stays near zero and looks like flat noise. Remember that image indexing is
+        `[y, x]`, so `cx` moves the box horizontally and `cy` moves it vertically.
         """
     )
     return
@@ -271,26 +310,25 @@ def _(maxproj, mo, nu, roi_cx, roi_cy, roi_trace, fg):
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "The dataset & the paper — and where the analogy stops": mo.md(
+        "Dataset, method, and limits": mo.md(
             r"""
             **Provenance.** The movie is `elife-28728-video1.mp4`, distributed with the open-access
             eLife article **e28728** (DOI [10.7554/eLife.28728](https://doi.org/10.7554/eLife.28728)):
-            a head-mounted **miniature microscope** (miniscope) recording GCaMP calcium fluorescence
-            from **striatal** neurons in a freely moving mouse. We re-host nothing — the notebook
-            streams it from eLife's server at runtime and caches it locally.
+            a head-mounted miniature microscope recording GCaMP calcium fluorescence from **striatal**
+            neurons in a freely moving mouse. The notebook streams it from eLife's server at runtime and
+            caches it locally.
 
-            **The method.** Median-background subtraction + per-pixel z-score + hand-placed ROI is the
-            *pedagogical* skeleton of calcium extraction. Production pipelines (CNMF / CNMF-E,
-            Pnevmatikakis et al. 2016; Zhou et al. 2018) replace the hand-drawn box with a learned,
-            data-driven **spatial footprint** per neuron and demix overlapping cells — which is exactly
-            **NB11**, the next notebook.
+            **What this method is.** Median-background subtraction, per-pixel z-score, and a hand-placed
+            ROI form a simple, teachable version of calcium extraction. Production pipelines (CNMF /
+            CNMF-E; Pnevmatikakis et al. 2016; Zhou et al. 2018) replace the hand-drawn box with a
+            learned, data-driven **spatial footprint** for each neuron and separate overlapping cells.
+            That is the subject of the next notebook, NB11.
 
-            **Where the analogy stops.** A rectangular ROI assumes one cell sits neatly inside the box
-            and nothing else does. Real striatal fields are dense: footprints overlap, neuropil
-            contaminates the average, and a single box will happily blend two cells or half a cell plus
-            background. The clean trace you extract here is a *best case*. When cells crowd, hand-ROIs
-            break and you need the demixing NB11 introduces — the same way NB02's 19 hand-built
-            features eventually gave way to a learned representation.
+            **Limits.** A rectangular ROI assumes that one cell sits inside the box and nothing else
+            does. Real striatal tissue is dense: cells overlap, surrounding tissue (neuropil) leaks into
+            the average, and a single box can blend two cells or half a cell plus background. The clean
+            trace extracted here is a best case. When cells crowd together, hand-placed ROIs are no
+            longer adequate and the demixing method in NB11 is needed.
             """
         )
     })
@@ -302,22 +340,28 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 5. Exercise — a cell fluctuates, background is flat
+        ## 5. Exercise: a cell fluctuates, background does not
 
-        **Hypothesis banner.** *A real cell's ROI trace carries transients (high variance); a
-        background patch of the same size does not (low variance). If choosing an ROI really is choosing
-        a feature, the cell-ROI variance should tower over the background-ROI variance.*
+        **What we expect.** A real cell's ROI trace should carry calcium transients, so it varies a lot
+        over time (high variance). A background patch of the same size should stay near zero, so it
+        varies little (low variance). If placing the ROI is what defines the measurement, then the
+        cell-ROI variance should be clearly larger than the background-ROI variance.
 
-        **Toolbox.**
+        **Tools you will use.**
 
-        - `roi_trace(fg, cx, cy, r=10)` — returns the `(90,)` box-average trace at center `(cx, cy)`.
-        - `fg` — the `(90, 500, 500)` z-scored foreground you built in Section 2.
-        - `maxproj` — the active-cell map; use it (or the slider above) to find a bright blob.
-        - `numpy`: `trace.var()`.
+        - `roi_trace(fg, cx, cy, r=10)` returns the `(90,)` box-average trace at center `(cx, cy)`.
+        - `fg` is the `(90, 500, 500)` z-scored foreground from Section 2.
+        - `trace.var()` returns one number: how much the trace fluctuates over the 90 frames.
+        - Use the active-cell map and the slider above to find a bright blob and a dark patch.
 
-        **Your job.** Pick **two** ROI centers: one on a bright cell (the slider defaults `(243, 349)`
-        and `(154, 338)` both land on real cells), and one on dark background (e.g. `(30, 30)`).
-        Extract both traces and fill in their variances below, then run the self-check.
+        **What to do.** In the next cell, edit the two marked lines so that `cell_var` measures a bright
+        cell and `bg_var` measures dark background. The cell line is filled in for you as a worked
+        example at `(243, 349)`; complete the background line with a dark patch such as `(30, 30)`. Then
+        run the self-check below.
+
+        **What you should see.** The cell trace visibly rises and falls, giving a variance near **0.9**.
+        The background trace stays close to zero, giving a variance near **0.15**, roughly a **6x**
+        difference. The self-check passes when the cell variance is well above the background variance.
         """
     )
     return
@@ -325,15 +369,21 @@ def _(mo):
 
 @app.cell
 def _(fg, roi_trace):
-    # ------------------------------------------------------------------ YOUR CODE (edit this cell)
-    # A bright cell (use the ROI slider above to hunt for a blob, then read off cx, cy):
+    # -------------------------------------------------------------- YOUR CODE (edit the 2 marked lines)
+    # roi_trace(fg, cx, cy, r=10) -> (90,) trace: the average foreground brightness inside a
+    #     20x20-pixel box centered on pixel (cx, cy), one value per movie frame.
+    # float(trace.var())          -> one number: how much that trace fluctuates over the 90 frames.
+
+    # LINE 1 (worked example): a BRIGHT CELL at (243, 349), the slider's default position.
     _cell_trace = roi_trace(fg, cx=243, cy=349, r=10)
     cell_var = float(_cell_trace.var())
 
-    # A background patch of the SAME size, on dark tissue:
+    # LINE 2 (you complete): a DARK BACKGROUND patch of the SAME size. Replace the cx and cy below with
+    #     a spot on empty tissue. The corner (cx=30, cy=30) works; the interactive map above helps you
+    #     confirm it is dark.
     _bg_trace = roi_trace(fg, cx=30, cy=30, r=10)
     bg_var = float(_bg_trace.var())
-    # ---------------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------
     return bg_var, cell_var
 
 
@@ -346,17 +396,17 @@ def _(mo):
             cell_trace = roi_trace(fg, cx=243, cy=349, r=10)   # a bright blob on the max-projection
             cell_var   = float(cell_trace.var())               # ~0.918
 
-            bg_trace   = roi_trace(fg, cx=30, cy=30, r=10)     # dark corner, no cell
+            bg_trace   = roi_trace(fg, cx=30, cy=30, r=10)      # dark corner, no cell
             bg_var     = float(bg_trace.var())                 # ~0.149
             ```
 
-            **What you should find:** the cell ROI has variance **≈ 0.92** and the background ROI
-            **≈ 0.15** — a **~6×** gap. The cell trace visibly rises and falls (calcium transients);
-            the background trace hovers near zero as flat noise. That gap *is* the payoff of choosing
-            the right ROI: the same arithmetic (box-average of foreground) gives you signal or garbage
-            depending only on **where** you point it — the imaging echo of NB02, where the same
-            transform gave a useful feature only because you chose the right frame. (The second default,
-            `(154, 338)`, lands on another real cell, variance ≈ 0.916 — try it too.)
+            **What you should find.** The cell ROI has variance about **0.92** and the background ROI
+            about **0.15**, a difference of roughly **6x**. The cell trace clearly rises and falls
+            (calcium transients); the background trace stays near zero. This shows that the same
+            operation, averaging the foreground inside a box, gives useful signal or flat noise
+            depending only on **where** the box is placed. Placing the ROI is what defines the
+            measurement. (A second cell sits at `(154, 338)`, with variance about 0.916; try it as
+            well.)
             """
         )
     })
@@ -367,7 +417,7 @@ def _(mo):
 def _(bg_var, cell_var, mo):
     # Self-check with a tolerance band pinned from the real 90-frame movie:
     #   cell(243,349) var = 0.9181, cell(154,338) = 0.9155, background(30,30) = 0.1493  (ratio ~6.1).
-    # Grade the HONEST claim: cell variance is well above background (ratio > 2.5) AND the background
+    # Grade the claim: cell variance is well above background (ratio > 2.5) AND the background
     # patch really is flat (bg_var < 0.4). We do not grade the exact number, only the separation.
     _ratio = cell_var / bg_var if bg_var > 0 else float("inf")
     _p_cell = cell_var > 0.4
@@ -383,7 +433,7 @@ def _(bg_var, cell_var, mo):
     _m_sep = (f"✅ cell / background variance ratio = {_ratio:.1f}× (> 2.5) — the ROI choice made the feature"
               if _p_sep else
               f"❌ ratio = {_ratio:.1f}× is too small — the two ROIs are not clearly different")
-    _head = "PASS — the cell ROI towers over background" if _ok else "Not yet — fix the flagged line"
+    _head = "PASS — the cell ROI variance is well above background" if _ok else "Not yet — fix the flagged line"
     mo.md(
         f"""
         <div style="background:{_c};border-left:6px solid {_b};padding:12px 16px;border-radius:6px">
@@ -403,24 +453,25 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## The twin, closed — and what breaks
+        ## Summary and what comes next
 
-        **The move, both times.** *Raw high-D signal → strip the nuisance → choose a view → read one
-        interpretable feature.* NB02 stripped arena pose and chose the body frame to read social
-        geometry. NB10 stripped the static background and chose an ROI to read a calcium trace.
-        **Choosing the ROI was choosing the feature** — the box's location decided what the number
-        meant, exactly as the body frame did.
+        **What we did.** We started from a raw imaging movie (250,000 pixel values per frame over time)
+        and reduced it to one interpretable calcium trace. The steps were: remove the static background,
+        build a map of active cells with a maximum projection, and place an ROI to average the
+        foreground inside a box. This mirrors the Week 1 workflow of reducing a large raw signal to a
+        few interpretable numbers; here the choice that defines the measurement is where the ROI box is
+        placed.
 
-        **How it breaks.** A rectangular ROI is a blunt instrument. It assumes one cell fits the box
-        and nothing else contaminates the average; in dense striatal tissue that assumption fails —
-        overlapping cells blur together, neuropil leaks in, and a slightly-off box reads a mixture. The
-        variance gap you measured is a *best case* on well-separated cells.
+        **Limits of this approach.** A rectangular ROI assumes one cell fits neatly in the box and
+        nothing else contaminates the average. In dense striatal tissue that assumption often fails:
+        overlapping cells blur together, surrounding tissue leaks into the average, and a slightly
+        misplaced box reads a mixture. The variance separation measured here is a best case on
+        well-separated cells.
 
-        **Next (NB11): let the data draw the ROIs.** Instead of a hand-placed box, CNMF-E learns a
-        **spatial footprint** for every neuron and **demixes** overlapping cells automatically —
-        turning today's one hand-chosen trace into a whole population at once. Same computational move
-        (pixels → per-cell feature), now learned instead of hand-drawn — the imaging twin of trading
-        NB02's hand-built features for a representation the data chooses.
+        **Next (NB11): let the data define the ROIs.** Instead of a hand-placed box, CNMF-E learns a
+        spatial footprint for every neuron and separates overlapping cells automatically, extracting a
+        whole population of traces at once rather than one hand-chosen trace. It is the same operation
+        (pixels to a per-cell measurement), now learned from the data rather than drawn by hand.
         """
     )
     return

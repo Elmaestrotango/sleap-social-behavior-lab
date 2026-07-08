@@ -922,6 +922,53 @@ def pca_loadings_fig(components, feature_names, k=3):
     return fig
 
 
+def labelled_skeleton_fig(pose_2d, node_names=None, edges=None, color="#d62728",
+                          reverse_y=True, height=520,
+                          title="SLEAP skeleton — 15 named keypoints"):
+    """A single skeleton drawn on a blank canvas with EVERY node's NAME printed beside it.
+
+    Purpose: the "what am I looking at?" reference figure for NB01 — no mouse photo exists in the
+    bundle, so this labelled diagram is the fallback that teaches the skeleton layout.
+
+    Inputs:
+        pose_2d    (15, 2) float array — one mouse, one frame, (x, y) pixel coords. NaN nodes are
+                   skipped (not drawn, not labelled).
+        node_names list of 15 str (defaults to cu.NODE_NAMES).
+        edges      list of (src, dst) int pairs (defaults to cu.SKELETON_EDGES).
+        color      single hex color for the whole skeleton — use the rank color, e.g.
+                   cu.RANK_HEX[1] (Dom=red), so mouse coloring stays consistent with every notebook.
+        reverse_y  True for raw image coords (y grows downward); the y-axis is flipped so the drawing
+                   is upright.
+    Output:
+        a plotly.graph_objects.Figure (edges + node markers + one text label per finite node)."""
+    import plotly.graph_objects as go
+    node_names = list(node_names) if node_names is not None else list(NODE_NAMES)
+    edges = list(edges) if edges is not None else list(SKELETON_EDGES)
+    p = np.asarray(pose_2d, float)
+    ok = np.isfinite(p).all(axis=1)
+    ex, ey = [], []
+    for u, v in edges:
+        if ok[u] and ok[v]:
+            ex += [p[u, 0], p[v, 0], None]
+            ey += [p[u, 1], p[v, 1], None]
+    fig = go.Figure()
+    fig.add_scatter(x=ex, y=ey, mode="lines", line=dict(color=color, width=2),
+                    hoverinfo="skip", showlegend=False)
+    idx = np.where(ok)[0]
+    fig.add_scatter(x=p[idx, 0], y=p[idx, 1], mode="markers+text",
+                    marker=dict(color=color, size=9),
+                    text=[f"{i} {node_names[i]}" for i in idx],
+                    textposition="middle right", textfont=dict(size=11),
+                    hoverinfo="skip", showlegend=False)
+    fig.update_xaxes(showgrid=False, zeroline=False, visible=False)
+    fig.update_yaxes(showgrid=False, zeroline=False, visible=False,
+                     scaleanchor="x", scaleratio=1,
+                     autorange="reversed" if reverse_y else True)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=90, t=40, b=10))
+    return fig
+
+
 def roc_pr_fig(y, scores):
     """Side-by-side ROC and precision-recall curves for a binary decoder."""
     from plotly.subplots import make_subplots

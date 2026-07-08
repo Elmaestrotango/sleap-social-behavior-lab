@@ -55,30 +55,59 @@ def _():
 def _(mo):
     mo.md(
         r"""
-        # 08 · The Decoder Graduates
+        # 08 · Training a decoder and testing it honestly
 
-        > **FROM: Circuit Team → TO: Behavior Team**
-        >
-        > This is the one. For eight notebooks you collapsed 11,700 raw pose numbers per event down to
-        > 19 features, ~6 components, a 2-D map, a syllable — and you learned, the hard way in NB06, which
-        > results survive honest statistics. Today you **ship the readout**: hand-score ground truth, train
-        > the decoder, and then meet **Cage 16 — the animal on the rig — for the first time.** If a decoder
-        > trained on seven cages reads a cage it has *never seen*, the laser turns on.
-        >
-        > **Deliverable:** a validated aggression decoder + its honest held-out score on Cage 16.
-        > **Circuit question it unblocks:** can we time-align an objective behavioral readout to a VMHvl
-        > stim / mPFC recording without hand-scoring every frame?
-        > **Today's lab-meeting question:** *Does the decoder generalize to a brand-new cage — and is it
-        > trustworthy enough to gate a causal experiment?*
+        **Why this notebook.** Over the previous notebooks you reduced each interaction from
+        11,700 raw pose numbers to 19 features, then to a few principal components, a 2-D map, and a
+        discrete syllable. The purpose of all that work is practical: to label behavior automatically,
+        so a human does not have to score every frame by hand. In this notebook you build that
+        automatic labeler — a **decoder** — and, just as importantly, you measure how well it works
+        using a fair test.
 
-        The mission resolves in **three beats**: **(1) ground truth & the label-noise ceiling** (the final
-        threat), **(2) train**, **(3) unlock Cage 16, validate honestly, and cash the neural check.**
+        This is the same reason a behavioral neuroscientist quantifies behavior in the first place. If
+        you later want to relate social behavior to the brain — say, to a recording in the medial
+        prefrontal cortex (mPFC) — you first need an objective, reproducible readout of what each mouse
+        is doing. A decoder provides that readout. Here you build one and check whether it can be
+        trusted on data it has never seen.
 
-        *Neuroscience connection (open):* leave-one-cage-out generalization is the behavioral face of a
-        cross-session brain–machine-interface decoder that must survive a new recording — the same demand
-        Padilla-Coreano and colleagues met when they decoded competitive rank from mPFC ensembles. You are
-        building the behavioral half of a published neural-decoding pipeline, and by the end you will run the
-        *identical code* on neurons.
+        The notebook has three parts: **(1)** labels and the ceiling that label noise puts on any
+        decoder, **(2)** training the decoder, and **(3)** testing it on a cage that was held out from
+        the start. At the end we apply the *same* code to a small neural dataset, to show the method
+        is not specific to pose.
+        """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        ### Key terms (defined before we use them)
+
+        - **Classifier / decoder.** A function that takes the measurements from one event (here, the
+          19 features) and outputs a guess about a category — for us, *aggression* vs *not
+          aggression*. "Decoder" is the same idea borrowed from neuroscience, where the input is neural
+          activity and the output is a guess about behavior or a stimulus. We use the two words
+          interchangeably.
+        - **Training data vs held-out data.** We *train* (fit) the decoder on events whose correct
+          answer we already know. To test it fairly, we then apply it to *held-out* events it never saw
+          during training. Scoring a model on the same data it trained on flatters it; only held-out
+          data shows whether it generalizes.
+        - **Cross-validation.** A way to estimate held-out performance when data are limited: split the
+          data into k parts, train on k−1 of them, test on the part left out, and repeat until every
+          part has been tested once. Below we use 5-fold cross-validation (k = 5).
+        - **Probability score.** Rather than a hard yes/no, the decoder outputs a number between 0 and
+          1 — its estimated probability that the event is aggression. A **threshold** turns that score
+          into a decision (for example, "call it aggression if the score is at least 0.5").
+        - **ROC-AUC (also written AUROC).** A single number summarizing how well the scores separate
+          the two classes, across every possible threshold. 1.0 is perfect ranking; 0.5 is chance (no
+          better than a coin flip). Because it does not depend on the threshold you pick, it is a good
+          overall summary.
+        - **Precision and recall.** After you fix a threshold: *precision* is, of the events the
+          decoder called aggression, the fraction that really were. *Recall* is, of the events that
+          really were aggression, the fraction the decoder caught. Raising the threshold usually raises
+          precision but lowers recall, and vice versa.
         """
     )
     return
@@ -89,7 +118,7 @@ def _(mo):
 def _(ROOT, cu):
     ev = cu.load_events(cu.data_path("data/train_events.npz", ROOT))     # kp, ranks, agg_label, category...
     der = cu.load_derived("train", ROOT)                                 # X (1500,19), pca_scores, cage, sex
-    ho = cu.load_events(cu.data_path("data/heldout_events.npz", ROOT))   # Cage 16 — the sealed rig (470)
+    ho = cu.load_events(cu.data_path("data/heldout_events.npz", ROOT))   # Cage 16 — the held-out cage (470)
     hod = cu.load_derived("heldout", ROOT)                               # X (470,19), sex all 'F'
     sweep = cu.load_umap_sweep(ROOT)                                     # default_labels = canonical clusters
     neu = cu.load_neural_demo(ROOT)                                      # X_neural (800,60), y, emb2d
@@ -101,7 +130,7 @@ def _(der, ev, ho, hod):
     X = der["X"]                          # (1500,19) train features
     y = ev["agg_label"].astype(int)       # (1500,) ground-truth aggression
     cage = der["cage"]                    # (1500,) cages 9..15
-    Xh = hod["X"]                          # (470,19) Cage 16 features
+    Xh = hod["X"]                         # (470,19) Cage 16 features
     yh = ho["agg_label"].astype(int)      # (470,) Cage 16 ground truth
     return X, Xh, cage, y, yh
 
@@ -145,6 +174,11 @@ def _(cu, s_ho, yh):
 # ============================================================================ readout board (top)
 @app.cell(hide_code=True)
 def _(bench, go, mo, res_ho):
+    # Readout Board. Gauge A = size of the representation (1 decision, the end of the Phase-1 collapse).
+    # Gauge B = held-out ROC-AUC on Cage 16, with the committed benchmark marked as a threshold line.
+    # FIX: Gauge B is mode="gauge+number" (delta removed). The delta compared the AUC to its own
+    # benchmark (0.86 vs 0.86 ≈ 0.000), which added a meaningless "≈0.000" line; the benchmark is
+    # already shown as the red threshold marker, so no delta is needed.
     _b = bench("B", "NB08", "held-out cage decode", 0.86)
     _auc = res_ho.get("roc_auc", float("nan"))
     _fig = go.Figure()
@@ -153,19 +187,18 @@ def _(bench, go, mo, res_ho):
         title={"text": "Gauge A · size of representation<br><sub>11,700 → 19 → 6 → 2-D → 1 decision</sub>"},
         number={"suffix": " decision"}, domain={"row": 0, "column": 0}))
     _fig.add_trace(go.Indicator(
-        mode="gauge+number+delta", value=_auc,
-        delta={"reference": _b, "valueformat": ".3f"},
-        title={"text": f"Gauge B · held-out readiness<br><sub>Cage 16 AUC vs benchmark {_b:.2f}</sub>"},
+        mode="gauge+number", value=_auc,
+        title={"text": f"Gauge B · held-out ROC-AUC<br><sub>Cage 16, benchmark {_b:.2f} (red line)</sub>"},
         gauge={"axis": {"range": [0.5, 1.0]}, "bar": {"color": "#2ca02c"},
                "threshold": {"line": {"color": "#e45756", "width": 3}, "value": _b}},
         domain={"row": 0, "column": 1}))
     _fig.update_layout(grid={"rows": 1, "columns": 2}, height=260,
                        margin=dict(l=30, r=30, t=70, b=10), template="plotly_white")
-    mo.vstack([mo.md("### Readout Board — the mission ledger"), _fig])
+    mo.vstack([mo.md("### Readout Board"), _fig])
     return
 
 
-# ============================================================================ sealed cage 16 → UNLOCKED
+# ============================================================================ the held-out cage
 @app.cell(hide_code=True)
 def _(Xh, mo, yh):
     _n, _npos = len(yh), int(yh.sum())
@@ -173,35 +206,40 @@ def _(Xh, mo, yh):
         f"""
         <div style="border:2px solid #2ca02c;border-radius:10px;padding:14px 18px;
         background:linear-gradient(90deg,#f0fff4,#ffffff)">
-        <b>🔓 CAGE 16 — UNLOCKED</b> &nbsp;·&nbsp; <b>notebooks until unlock: 0</b><br>
-        The forbidden fruit is finally on the table. Camera 16 holds <b>{_n} events</b>
-        ({_npos} aggression, base rate {_npos/_n:.3f}) with <b>{Xh.shape[1]} features</b> each — a
-        <b>female</b> cage (the training set mixes M/F, so this doubles as a <b>cross-sex</b> test).
-        It was greyed-out and blacked-out for seven notebooks precisely so today's number would be
-        <i>honest</i>: nothing about Cage 16 ever touched the feature design, the PCA, the map, or the
-        cluster labels. This is the only test a circuit experiment would believe.
+        <b>A cage held out for a fair test.</b><br>
+        One cage — Camera 16 — was set aside from the very beginning. Nothing about it was used when we
+        designed the features, ran the PCA, built the map, or labeled the clusters. That is
+        deliberate: because the decoder never saw Cage 16 during any earlier step, its score here is an
+        honest estimate of how the decoder would perform on genuinely new data. Cage 16 has
+        <b>{_n} events</b> ({_npos} aggression, base rate {_npos/_n:.3f}) with <b>{Xh.shape[1]}
+        features</b> each. It is a <b>female</b> cage, whereas the training cages mix male and female,
+        so it also serves as a <b>cross-sex</b> test.
         </div>
         """
     )
     return
 
 
-# ============================================================================ ACT 1 — ground truth & ceiling
+# ============================================================================ PART 1 — ground truth & ceiling
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## Act 1 · Ground truth & the label-noise ceiling *(the final threat)*
+        ## Part 1 · Labels and the label-noise ceiling
 
-        A decoder is only as honest as its labels. Before we train anything, **you** hand-score a handful of
-        exemplar clips, then we measure your agreement with a reference key. A hard truth up front: comparing
-        your labels to a single reference key measures **accuracy against that reference**, *not* inter-rater
-        reliability — real inter-rater reliability needs a genuinely independent second labeler (offered as a
-        stretch below). Cohen's κ corrects for chance agreement either way, but the *interpretation* changes.
+        **Why this matters.** A decoder learns from labeled examples, so it can only be as reliable as
+        those labels. If some labels are wrong, the decoder inherits that error: no model — however
+        good — can exceed the quality of the answers it was trained and tested against. Before training
+        anything, it is worth measuring how much the labels themselves disagree.
 
-        Whatever noise your labels carry does not average out — it **caps the ceiling** every downstream
-        decoder can reach.
+        **Definitions.** *Ground truth* means the labels we treat as correct (here, a human's judgment
+        of whether an event is aggression). *Inter-rater reliability* measures how much two independent
+        human labelers agree with each other. Below, **you** hand-score a few clips and we compare your
+        labels to a single reference key. Note the distinction: comparing to one reference key measures
+        your **accuracy against that key**, not true inter-rater reliability (which needs a second
+        independent labeler — offered as a stretch below). We report *Cohen's κ*, a measure of
+        agreement corrected for the amount you would expect by chance alone (0 = chance, 1 = perfect).
         """
     )
     return
@@ -210,20 +248,22 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "📋 Labeling guidelines (open me before you score)": mo.md(
+        "📋 Labeling guidelines (read before you score)": mo.md(
             r"""
-            Call an event **aggression** when you see a committed, high-velocity offensive act directed at the
-            other mouse: a lunge, chase-to-contact, pin, or bite attempt. The white arrow points
-            approacher → approachee; the red dot marks contact onset.
+            Call an event **aggression** when you see a committed, high-speed offensive act directed at
+            the other mouse: a lunge, a chase to contact, a pin, or a bite attempt. In the clips, the
+            white arrow points from the **approacher** toward the **approachee**, and the red dot marks
+            the moment of contact.
 
-            **Do NOT** call it aggression for: passive co-resting, sniff/investigation, anogenital contact,
-            grooming, or two mice simply on the ledge. The tricky ones are the **`mlp_fp`** clips — events an
-            earlier model flagged as aggression that a human rejects. They sit right on the criterion, and how
-            you score them is exactly where label noise enters.
+            **Do not** call it aggression for: passive co-resting, sniffing or investigation,
+            anogenital contact, grooming, or two mice simply resting on the ledge. The hardest cases
+            are the clips tagged **`mlp_fp`** — events that an earlier model flagged as aggression but a
+            human rejects. They sit right at the boundary of the definition, and how you score them is
+            exactly where label noise enters.
 
-            **Stretch — make "inter-rater" honest:** have a labmate score the same eight clips independently
-            and compute κ between the *two of you*. That is inter-rater reliability; comparing to the key
-            below is only accuracy-vs-reference.
+            **Stretch (makes "inter-rater" honest):** have a labmate score the same eight clips
+            independently, and compute κ between the two of you. That is genuine inter-rater
+            reliability; comparing to the key below is only accuracy against a reference.
             """)
     })
     return
@@ -256,8 +296,8 @@ def _(cu, ev, mo, np):
 @app.cell(hide_code=True)
 def _(cu, ev, label_form, label_idx, mo, np):
     if label_form.value is None:
-        _out = mo.md("*Score all eight clips above and click **Grade my labels** to measure your agreement "
-                     "with the reference key.*")
+        _out = mo.md("*Score all eight clips above and click **Grade my labels** to measure your "
+                     "agreement with the reference key.*")
     else:
         _v = label_form.value
         _student = np.array([1 if _v[f"d{_j}"] == "aggression" else 0 for _j in range(len(label_idx))])
@@ -268,10 +308,11 @@ def _(cu, ev, label_form, label_idx, mo, np):
         _out = mo.md(
             f"""
             <div style="border-left:5px solid {_color};padding:8px 14px;background:#fafafa">
-            <b>Agreement with the reference key</b> (this is <i>accuracy vs a reference</i>, not inter-rater
-            reliability): raw accuracy <b>{_acc:.2f}</b> over {len(label_idx)} clips · Cohen's κ
-            <b>{_kappa:.2f}</b> (chance-corrected). Most disagreements land on the <code>mlp_fp</code> clips —
-            that residual is the label noise that caps every decoder below.
+            <b>Agreement with the reference key</b> (this is <i>accuracy against a reference</i>, not
+            inter-rater reliability): raw accuracy <b>{_acc:.2f}</b> over {len(label_idx)} clips ·
+            Cohen's κ <b>{_kappa:.2f}</b> (chance-corrected). Most disagreements fall on the
+            <code>mlp_fp</code> clips — that leftover disagreement is the label noise that limits every
+            decoder below.
             </div>
             """)
     _out
@@ -282,12 +323,14 @@ def _(cu, ev, label_form, label_idx, mo, np):
 def _(mo):
     mo.md(
         r"""
-        ### How the criterion moves the false-positive rate
+        ### How the threshold changes the false-positive rate
 
-        The `mlp_fp` events are the deliberately-ambiguous near-misses. Slide the decision criterion and watch
-        the decoder's **false-positive rate on exactly these clips**: a loose criterion (low threshold) calls
-        many of them aggression; tightening it trades those false alarms for missed real attacks. There is no
-        free lunch — the label noise you just felt is the same ambiguity the decoder must price.
+        The `mlp_fp` events are the deliberately ambiguous near-misses. The slider below sets the
+        decision **threshold** — the score above which the decoder calls an event aggression. Watch the
+        decoder's **false-positive rate on exactly these ambiguous clips**: a low threshold calls many
+        of them aggression (many false positives); raising it removes those false alarms but, on real
+        data, would also start missing genuine attacks. There is no threshold that makes both errors
+        zero — the ambiguity you felt while labeling is the same ambiguity the decoder must handle.
         """
     )
     return
@@ -295,7 +338,7 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    fp_thr = mo.ui.slider(0.05, 0.95, value=0.5, step=0.05, label="decision criterion (threshold)",
+    fp_thr = mo.ui.slider(0.05, 0.95, value=0.5, step=0.05, label="decision threshold",
                           debounce=True, full_width=True)
     return (fp_thr,)
 
@@ -327,10 +370,11 @@ def _(ev, fp_thr, go, mo, np, s_tr):
 def _(mo):
     mo.md(
         r"""
-        **Predict the ceiling.** If ~1 in 8 hand labels is wrong at the boundary (and NB01 already warned that
-        tail-mark identity carries ~16% error), a *perfect* model still inherits that noise as an accuracy
-        ceiling. Below we can simulate it directly: corrupt a fraction of the training labels and watch the
-        held-out AUC fall. This refits several models, so it is gated.
+        **The label-noise ceiling.** If about 1 in 8 hand labels is wrong at the boundary (and NB01
+        already noted that tail-mark identity carries roughly 16% error), then even a perfect model
+        inherits that error as an upper limit on accuracy. We can show this directly: flip a fraction
+        of the training labels on purpose and watch the held-out AUC fall. This refits several models,
+        so it runs only when you click the button.
         """
     )
     return
@@ -345,7 +389,8 @@ def _(mo):
 @app.cell
 def _(X, Xh, cu, go, mo, noise_btn, np, y, yh):
     if not noise_btn.value:
-        _out = mo.md("*Click to sweep training-label corruption and see the held-out ceiling fall.*")
+        _out = mo.md("*Click to corrupt a fraction of the training labels and see the held-out "
+                     "AUC fall.*")
     else:
         _levels = [0.0, 0.05, 0.10, 0.20, 0.30]
         _aucs = []
@@ -367,22 +412,31 @@ def _(X, Xh, cu, go, mo, noise_btn, np, y, yh):
     return
 
 
-# ============================================================================ ACT 2 — train
+# ============================================================================ PART 2 — train
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## Act 2 · Train the readout
+        ## Part 2 · Train the decoder
 
-        Now the decoder. `make_mlp` is a small sklearn pipeline (median-impute → standardize → MLP); a
-        **logistic-regression** linear baseline keeps us honest about whether nonlinearity buys anything.
+        **Why.** With labels in hand, we now fit the decoder and check that the earlier processing
+        steps actually help it.
 
-        **Every earlier stage should demonstrably feed this readout.** The feature-set comparison below pits
-        the raw **19 features** against the **PCA scores** you built in NB04 and against **19 features +
-        cluster-membership one-hot** from the canonical NB05 map — a *within-cage* 5-fold comparison. (The 19
-        features already contain the NB03 coordination signals — `closing_speed`, the facing cosines,
-        `heading_alignment` — so coordination is represented rather than bolted on.)
+        **Method.** `cu.make_mlp()` builds a small scikit-learn pipeline. *Purpose:* turn features into
+        an aggression probability. *Inputs:* a feature matrix `X` (rows = events, columns = features)
+        and labels `y`. *Steps inside:* fill in any missing values with the column median, standardize
+        each feature to comparable scale, then apply a small multi-layer perceptron (MLP) — a neural
+        network with a couple of hidden layers. *Output:* an unfitted model; after `.fit(X, y)`,
+        `.predict_proba(X)[:, 1]` returns one probability per event.
+
+        As a check on whether the network's nonlinearity is doing real work, we also fit a **logistic
+        regression** — a simpler, purely *linear* classifier — as a baseline. And we compare three
+        feature sets, using 5-fold cross-validation *within the training cages*: the raw **19
+        features**, the **PCA scores** from NB04, and the **19 features plus a one-hot code for cluster
+        membership** from the NB05 map. (The 19 features already include the coordination signals from
+        NB03 — `closing_speed`, the facing cosines, `heading_alignment` — so coordination is already
+        represented.)
         """
     )
     return
@@ -428,7 +482,7 @@ def _(X, bench, cu, der, featureset_btn, go, mo, np, sweep, y):
                        annotation_text="NB06 benchmark 0.837")
         _fig.update_yaxes(range=[0.5, 0.9], title="5-fold CV AUROC")
         _fig.update_layout(template="plotly_white", height=380, barmode="group",
-                           title="Feature-set comparison (within-cage CV) — earlier stages feed the readout",
+                           title="Feature-set comparison (within-cage cross-validation)",
                            margin=dict(l=10, r=10, t=50, b=10))
         _out = _fig
     _out
@@ -439,25 +493,34 @@ def _(X, bench, cu, der, featureset_btn, go, mo, np, sweep, y):
 def _(mo):
     mo.md(
         r"""
-        Two honest takeaways you will see: the **linear** baseline is nearly as good as the MLP (this problem
-        is close to linearly separable in feature space), and **adding cluster one-hots barely helps** — the
-        clusters are a *coarsening* of the same 19 features, not new information. That is the point of the
-        whole Phase-1 collapse: the representation was already in the features.
+        Two results are worth stating plainly. First, the **linear** baseline is nearly as good as the
+        MLP, which tells you this problem is close to linearly separable in feature space — the
+        nonlinearity buys little here. Second, **adding the cluster one-hots barely helps**: the
+        clusters are a coarser summary of the same 19 features, not new information. That is the point
+        of the whole feature-reduction process — the useful signal was already in the features.
         """
     )
     return
 
 
-# ============================================================================ ACT 3 — Cage 16 unlocks
+# ============================================================================ PART 3 — held-out test
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## Act 3 · Cage 16 — the honest held-out test
+        ## Part 3 · The held-out test on Cage 16
 
-        The core test runs **on load, no button**: train on cages 9–15, evaluate on Cage 16. The ROC/PR
-        curves, confusion matrix, and calibration below are the real thing.
+        **Why.** Cross-validation within the training cages is a good estimate, but the strongest test
+        is a cage the decoder has never seen in any form. That is Cage 16.
+
+        The test runs automatically, with no button: we train on cages 9–15 and evaluate on Cage 16.
+        The ROC and precision–recall curves, the confusion matrix, and the calibration curve below are
+        computed on that held-out cage.
+
+        **Reading an ROC curve.** It plots the true-positive rate against the false-positive rate as
+        the threshold varies. A curve that hugs the top-left corner is good; the diagonal is chance.
+        The area under it is the ROC-AUC.
         """
     )
     return
@@ -468,6 +531,20 @@ def _(cu, res_ho, s_ho, yh):
     roc_fig = cu.roc_pr_fig(yh, s_ho)
     roc_fig.update_layout(title=f"Cage 16 held-out · ROC-AUC = {res_ho.get('roc_auc', float('nan')):.3f}")
     roc_fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        **The confusion matrix** (left) counts the four outcomes at a threshold of 0.5: correct
+        rejections and detections on the diagonal, false positives and misses off it. **The
+        calibration curve** (right) checks whether the probabilities mean what they say: for events the
+        decoder scored around 0.7, did roughly 70% actually turn out to be aggression? A well-calibrated
+        decoder follows the dotted diagonal.
+        """
+    )
     return
 
 
@@ -497,10 +574,11 @@ def _(cu, go, mo, np, res_ho, s_ho, yh):
 def _(mo):
     mo.md(
         r"""
-        ### The opto readout: pick a decision threshold
+        ### Choosing a decision threshold
 
-        For a causal experiment the threshold is a policy, not a default. A false "attack" fakes an effect; a
-        missed one hides it. Slide the threshold and read **live precision/recall on Cage 16**.
+        The threshold is a choice, not a fixed default, and it depends on what the readout is for. A
+        false "attack" call inflates the apparent amount of aggression; a missed attack hides it. Slide
+        the threshold and read **precision and recall on Cage 16** at each setting.
         """
     )
     return
@@ -548,11 +626,14 @@ def _(X, cu, mo, np, res_ho, y):
     _loco = res_ho.get("roc_auc", float("nan"))
     mo.md(
         f"""
-        **Within-cage vs leave-one-cage-out (LOCO).** Within-cage 70/30 split AUC ≈ **{_within:.3f}**;
-        held-out Cage-16 (LOCO) AUC ≈ **{_loco:.3f}**. On *this* bundle LOCO is actually the *easier* test —
-        Cage 16 is a female control cage with a higher, cleaner aggression base rate (0.383), so held-out
-        beats within-cage. That inverts the usual "generalization tax" and is worth stating out loud rather
-        than assuming: the honest gap is whatever the data shows, not what you hoped for.
+        **Within-cage versus leave-one-cage-out (LOCO).** A within-cage 70/30 split gives AUC ≈
+        **{_within:.3f}**; the held-out Cage-16 (leave-one-cage-out) test gives AUC ≈ **{_loco:.3f}**.
+
+        Usually held-out data is *harder*, because a model can pick up cage-specific quirks that do not
+        transfer. Here the held-out test is actually a little *easier*: Cage 16 is a female control cage
+        with a higher and cleaner aggression base rate (0.383), so the events are easier to separate.
+        We report this rather than hide it. The honest gap is whatever the data show — the point of a
+        held-out test is to measure that gap, not to assume its sign.
         """
     )
     return
@@ -562,11 +643,13 @@ def _(X, cu, mo, np, res_ho, y):
 def _(mo):
     mo.md(
         r"""
-        ### The decoder's receptive field
+        ### Which features the decoder relies on
 
-        `permutation_importance` shuffles one feature at a time and measures how much Cage-16 AUC drops — the
-        features whose destruction hurts most are what the decoder actually reads. This re-scores many times,
-        so it is gated.
+        `permutation_importance` estimates how much each feature matters. *Purpose:* identify the
+        features the decoder actually reads. *Method:* shuffle one feature's values across events
+        (breaking its link to the label) and measure how far Cage-16 AUC drops; a large drop means the
+        feature was important. *Inputs:* the fitted model, `Xh`, `yh`. *Output:* a mean drop per
+        feature. It re-scores many times, so it runs on a button.
         """
     )
     return
@@ -583,7 +666,7 @@ def _(Xh, cu, go, model, permimp_btn, np, yh):
     if not permimp_btn.value:
         _out = go.Figure().update_layout(
             template="plotly_white", height=120,
-            title="Click the button above to reveal the decoder's receptive field",
+            title="Click the button above to see which features the decoder relies on",
             margin=dict(l=10, r=10, t=40, b=10))
     else:
         from sklearn.inspection import permutation_importance
@@ -593,26 +676,28 @@ def _(Xh, cu, go, model, permimp_btn, np, yh):
                                 orientation="h", marker_color="#4c78a8",
                                 error_x=dict(type="data", array=_r.importances_std[_order])))
         _fig.update_layout(template="plotly_white", height=520,
-                           title="Permutation importance on Cage 16 — the decoder's receptive field",
+                           title="Permutation importance on Cage 16",
                            xaxis_title="drop in ROC-AUC when shuffled", margin=dict(l=10, r=10, t=50, b=10))
         _out = _fig
     _out
     return
 
 
-# ---- Hero Event (this notebook's method = the decoder reads it) ----
+# ---- the example event, as read by the decoder ----
 @app.cell(hide_code=True)
 def _(cu, ev, mo, s_tr):
-    _HERO = 909      # cage 15, male, aggression, contact_rel=40, node reliability 0.998 (see engine note)
-    _gif = cu.event_gif_bytes(ev["kp"][_HERO], ev["ranks"][_HERO], int(ev["contact_rel"][_HERO]), cell=200)
+    _EX = 909      # our example event: Cage 15, male, aggression, contact_rel=40
+    _gif = cu.event_gif_bytes(ev["kp"][_EX], ev["ranks"][_EX], int(ev["contact_rel"][_EX]), cell=200)
     mo.md(
         f"""
-        **Hero Event #{_HERO}** (Cage 15, male — our canonical aggression event; index 742 in the design doc
-        is a non-aggression Cage-12 clip in the shipped data, so we follow #909 throughout). We tracked it
-        from raw skeleton → body-frame geometry → a point on the map → a syllable. The decoder now reads it:
-        **P(aggression) = {s_tr[_HERO]:.2f}** — a confident hit. *(This is an in-sample sanity check — #909
-        is a training event — so treat the number as a demonstration, not evidence; the honest evidence is
-        the Cage-16 curve above.)*
+        **Our example approach event (#{_EX}, Cage 15, male).** This is the same interaction we have
+        followed throughout the course: the **approacher** is the Dom mouse (red) and the
+        **approachee** is the Sub mouse (green). We tracked it from the raw skeleton, through
+        body-frame geometry, to a point on the map, to a syllable. The decoder now scores it:
+        **P(aggression) = {s_tr[_EX]:.2f}**.
+
+        Note this is an in-sample check — event #909 is a training event — so the number is a
+        demonstration, not evidence. The honest evidence is the Cage-16 curve above.
 
         {cu.gif_img_html(_gif, width=200)}
         """
@@ -629,8 +714,10 @@ def _(cu, ho, mo, np, s_ho):
     _scores = ", ".join(f"{s_ho[i]:.2f}" for i in _top)
     mo.md(
         f"""
-        **The decoder's confident calls on Cage 16** (top-4 predicted aggression, scores {_scores}). These
-        are events it never trained on:
+        **The decoder's most confident aggression calls on Cage 16** (top four by score: {_scores}).
+        These are events from the held-out cage — the decoder never trained on any of them. Watch the
+        clips and judge for yourself whether they look like aggression; this is what the AUC number
+        represents concretely.
 
         {cu.gif_img_html(_grid, width=600)}
         """
@@ -638,16 +725,18 @@ def _(cu, ho, mo, np, s_ho):
     return
 
 
-# ============================================================================ opto simulation
+# ============================================================================ threshold + hypothetical experiment
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ### Simulate the opto readout
+        ### Using the decoder to detect a change in behavior
 
-        The mission's whole point: gate a causal experiment. Imagine VMHvl stimulation **multiplies attack
-        frequency**. We resample Cage 16 to inject that shift, then ask whether *this* decoder, at the current
-        detection threshold, catches the change. Turn the knob and watch detected-aggression rate move.
+        A common use of a validated decoder is to detect whether some manipulation changed behavior.
+        Suppose a manipulation increases the number of attacks. We can imitate that by resampling Cage
+        16 to add more aggression events, then ask whether *this* decoder, at the current threshold,
+        registers the increase. Move the slider to set how large the increase is and watch the detected
+        rate change.
         """
     )
     return
@@ -655,7 +744,7 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    opto_mult = mo.ui.slider(1.0, 3.0, value=2.0, step=0.25, label="VMHvl-stim attack multiplier",
+    opto_mult = mo.ui.slider(1.0, 3.0, value=2.0, step=0.25, label="attack-frequency multiplier",
                              debounce=True, full_width=True)
     return (opto_mult,)
 
@@ -670,30 +759,37 @@ def _(go, mo, np, opto_mult, s_ho, yh):
     _thr = 0.5
     _base_rate = float((s_ho >= _thr).mean())
     _stim_rate = float((_scores_stim >= _thr).mean())
-    _catches = "✅ the decoder catches it" if (_stim_rate - _base_rate) > 0.03 else "⚠️ shift too small to see"
-    _fig = go.Figure(go.Bar(x=["baseline", f"VMHvl stim ×{opto_mult.value:g}"],
+    _catches = ("the decoder detects the change" if (_stim_rate - _base_rate) > 0.03
+                else "the shift is too small for the decoder to register")
+    _fig = go.Figure(go.Bar(x=["baseline", f"increased ×{opto_mult.value:g}"],
                             y=[_base_rate, _stim_rate], marker_color=["#9aa0a6", "#e45756"],
                             text=[f"{_base_rate:.2f}", f"{_stim_rate:.2f}"], textposition="outside"))
     _fig.update_layout(template="plotly_white", height=330,
-                       title=f"Detected-aggression rate @ thr 0.5 — {_catches}",
+                       title=f"Detected-aggression rate @ threshold 0.5 — {_catches}",
                        yaxis_title="fraction flagged aggression", yaxis_range=[0, 1],
                        margin=dict(l=10, r=10, t=50, b=10))
     mo.vstack([opto_mult, _fig])
     return
 
 
-# ============================================================================ cash the neural check
+# ============================================================================ same pipeline on neural data
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## Cash the neural check
+        ## The same pipeline applied to neural data
 
-        Here is the twist the whole week was built on. A synthetic **population raster** — 800 trials × 60
-        neurons, a hidden binary brain state modulating firing — is decoded with the **identical**
-        `make_mlp` / `eval_binary` you just used on behavior. Same code, different signal. You decode a brain
-        with the exact pipeline you built to decode behavior.
+        **Why this is here.** The word "decoder" comes from neuroscience, where it means a model that
+        reads a category out of neural activity. The pipeline you just built is not specific to pose —
+        it is a general classifier. To show that, we apply the **identical** `cu.make_mlp` and
+        `cu.eval_binary` functions to a small population dataset: 800 trials × 60 neurons, where a
+        hidden binary brain state modulates firing. The task is to decode that hidden state from the
+        neural activity, using the same train/held-out split you used for behavior.
+
+        (The neural dataset here is synthetic and cleanly separable, so it is easy on purpose. It
+        demonstrates the method, not a claim about real recordings — which are messier, and where the
+        honest held-out discipline you practiced on Cage 16 matters even more.)
         """
     )
     return
@@ -714,11 +810,11 @@ def _(cu, neu, np):
 def _(mo, neu_auc):
     mo.md(
         f"""
-        **Held-out neural decode: ROC-AUC = {neu_auc:.3f}.** The identical pipeline that read aggression from
-        pose reads the hidden state from spikes. The synthetic raster is cleanly separable (near-perfect
-        here), which is the *point* of the demonstration, not a claim about real data — real ensembles are
-        messier, and that mess is exactly why the honest held-out discipline you practiced on Cage 16 matters
-        even more for neurons.
+        **Held-out neural decode: ROC-AUC = {neu_auc:.3f}.** The same pipeline that read aggression
+        from pose reads the hidden brain state from spike counts. The high score reflects the fact that
+        this synthetic dataset is cleanly separable, which is the point of the demonstration. Real
+        neural populations are noisier, and the held-out test is exactly what you would use to check a
+        real decoder.
         """
     )
     return
@@ -728,10 +824,11 @@ def _(mo, neu_auc):
 def _(mo):
     mo.md(
         r"""
-        ### CEBRA epilogue — a joint neural–behavior embedding
+        ### A joint neural–behavior embedding
 
-        The precomputed 2-D embedding below places every trial by its neural population activity, colored by
-        the hidden state. This is the *aspiration* of methods like CEBRA: behavior and brain in one space.
+        The precomputed 2-D embedding below places every trial by its neural population activity,
+        colored by the hidden state. Methods such as CEBRA aim to put behavior and brain activity in a
+        single low-dimensional space like this so they can be compared directly.
         """
     )
     return
@@ -751,70 +848,83 @@ def _(go, mo, neu):
     _fig.update_xaxes(showgrid=False); _fig.update_yaxes(showgrid=False)
     mo.vstack([
         _fig,
-        mo.accordion({"Where the analogy stops": mo.md(
+        mo.accordion({"How CEBRA actually uses behavior": mo.md(
             r"""
-            CEBRA does **not** symmetrically merge brain and behavior. It uses behavior (or time, or a label)
-            as a **contrastive** signal to *shape* a neural embedding — pulling together trials that share a
-            behavioral context and pushing apart those that don't. The poetic "one space" is the goal;
-            contrastive learning is the mechanism, and it is directional. *Schneider, Lee & Mathis 2023,
-            Nature — synthetic demonstration here, not a fitted CEBRA model.*
+            CEBRA does not merge brain and behavior symmetrically. It uses behavior (or time, or a
+            label) as a signal to *shape* a neural embedding — pulling together trials that share a
+            behavioral context and pushing apart trials that do not. So the "single space" is a neural
+            embedding organized by behavior, not a true fusion of the two. *Schneider, Lee & Mathis
+            2023, Nature. The figure here is a synthetic demonstration, not a fitted CEBRA model.*
             """)})
     ])
     return
 
 
-# ============================================================================ neuroscience connection
+# ============================================================================ references
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "🧠 Deeper: the paper & where the analogy stops": mo.md(
+        "References — neural decoding": mo.md(
             r"""
-            **Shared mathematics.** A leave-one-cage-out decoder is a population decoder that must survive a
-            *held-out session* — the same demand a cross-session brain–machine interface faces. The math of
-            fitting a classifier on one set of recordings and asking it to read a new one is identical whether
-            the rows are events or trials and the columns are pose features or neurons.
+            A leave-one-cage-out decoder faces the same demand as a population decoder that must work on
+            a *held-out recording session*: fit a classifier on one set of data and ask it to read new
+            data. The underlying method is the same whether the rows are events or trials and the
+            columns are pose features or neurons.
 
-            **Real references.** Georgopoulos et al. 1986 *Science* (population vector decoding); Glaser et
-            al. 2020 *eNeuro* (machine-learning neural decoders); Gilja et al. 2012 *Nat. Neurosci.* (a BMI
-            that stays stable across sessions); **Padilla-Coreano et al. 2022 *Nature*** — decoded competitive
-            rank from mPFC ensembles using tracking + an HMM/GLM, i.e. the *mirror image* of what you built;
-            Schneider, Lee & Mathis 2023 *Nature* (CEBRA).
+            - Georgopoulos et al. 1986, *Science* — population-vector decoding of movement direction.
+            - Glaser et al. 2020, *eNeuro* — machine-learning methods for neural decoding.
+            - Gilja et al. 2012, *Nat. Neurosci.* — a brain–machine interface that stays stable across
+              sessions.
+            - Padilla-Coreano et al. 2022, *Nature* — decoded competitive rank from mPFC ensembles
+              using tracking plus a statistical model; a neural counterpart to the behavior decoder here.
+            - Schneider, Lee & Mathis 2023, *Nature* — CEBRA.
 
-            **Species / preparation tag.** Mouse homecage pose (behavior) ↔ rodent/primate electrophysiology
-            (neural); the neural-demo raster is *synthetic*.
-
-            **Where the analogy stops.** Held-out **cage** is the honest unit here because cage is the true
-            source of non-independence — the neural analog is a held-out **session/subject**, not a held-out
-            trial. And CEBRA shapes a neural embedding *using* behavior as a contrastive label; it is not a
-            symmetric fusion. Tube-test rank ≠ homecage aggression either — correlated but dissociable axes
-            (the standing rank caveat from NB06).
+            One caution carried from NB06: tube-test rank and homecage aggression are related but
+            distinct measures, so a decoder trained on one does not automatically read the other.
             """)
     })
     return
 
 
-# ============================================================================ exercise scaffold
+# ============================================================================ exercise
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## 🧪 Exercise — graduate the decoder
+        ## Exercise — build and check the decoder
+
+        **Goal.** Reproduce the two core results of this notebook: (1) train the decoder on cages 9–15
+        and score it on the held-out Cage 16, and (2) apply the same pipeline to the neural demo.
 
         **Toolbox**
-        - `cu.make_mlp()` → unfitted sklearn Pipeline; call `.fit(X, y)` then `.predict_proba(X)[:, 1]`.
-        - `cu.eval_binary(y_true, y_score, thr=0.5)` → `{roc_auc, avg_precision, confusion, ...}` (takes the
-          **score vector**, not the model).
-        - `X, y` = train features/labels (cages 9–15); `Xh, yh` = Cage-16 features/labels.
-        - `neu` → `X_neural (800,60)`, `y (800,)` for the neural check.
+        - `cu.make_mlp()` → an unfitted pipeline. Call `.fit(X, y)`, then `.predict_proba(X)[:, 1]` to
+          get one aggression probability per event.
+        - `cu.eval_binary(y_true, y_score)` → a dict including `"roc_auc"`. It takes the **score
+          vector**, not the model.
+        - `X, y` = training features/labels (cages 9–15); `Xh, yh` = Cage-16 features/labels;
+          `neu["X_neural"]` (800×60) and `neu["y"]` (800,) = the neural demo.
 
-        **Hypothesis banner.** *A decoder trained on cages 9–15 detects aggression in never-seen Cage 16 at
-        held-out ROC-AUC ≈ 0.86, and the same pipeline decodes the neural demo's hidden state well above
-        chance.*
+        **Fill in the blanks.** In the next cell, two lines are marked `# <<< EDIT`. Each already
+        contains the correct code so the notebook runs; the comment tells you what to write. Try
+        rewriting each marked line yourself from the scaffold below, then re-run and compare against the
+        self-check.
 
-        **Your TODO** (write it in the next cell):
-        1. Fit `cu.make_mlp()` on `(X, y)`; score `Xh`; compute `heldout_auc` with `cu.eval_binary`.
-        2. Fit a fresh `cu.make_mlp()` on a split of `neu["X_neural"]`/`neu["y"]`; compute `neural_auc`.
+        ```python
+        # 1) held-out behavior decode
+        m = cu.make_mlp()
+        m.fit(X, y)                                   # train on the seven training cages
+        scores_ho = m.predict_proba(____)[:, 1]       # <<< score the HELD-OUT features (Xh, not X)
+        heldout_auc = cu.eval_binary(yh, scores_ho)["roc_auc"]
+
+        # 2) neural decode with the same pipeline
+        neural_auc = cu.eval_binary(yn_test, m2.predict_proba(Xn_test)[:, 1])["____"]  # <<< "roc_auc"
+        ```
+
+        **What to expect.** The self-check should report a held-out Cage-16 AUC near **0.86** (in the
+        band 0.80–0.92) and a neural-demo AUC above **0.90**. If your held-out AUC comes out
+        suspiciously high (near 1.0), you probably scored `X` instead of `Xh` — that is testing on the
+        training data.
         """
     )
     return
@@ -822,18 +932,18 @@ def _(mo):
 
 @app.cell
 def _(X, Xh, cu, neu, np, y, yh):
-    # ------------------------------------------------------------------ TODO: student writes this
-    # heldout_auc = ...     # train on (X, y), score Xh, eval vs yh
-    # neural_auc  = ...     # held-out split of neu["X_neural"] / neu["y"]
-    #
-    # Reference implementation (also revealed in the solution accordion):
-    _m = cu.make_mlp(); _m.fit(X, y)
-    heldout_auc = cu.eval_binary(yh, _m.predict_proba(Xh)[:, 1])["roc_auc"]
+    # ---- Fill in the two lines marked  # <<< EDIT.  Everything else is done for you. ----
 
+    # (1) Held-out behavior decode: train on (X, y), then score the HELD-OUT cage.
+    _m = cu.make_mlp(); _m.fit(X, y)
+    _scores_ho = _m.predict_proba(Xh)[:, 1]                 # <<< EDIT: score Xh (the held-out features), not X
+    heldout_auc = cu.eval_binary(yh, _scores_ho)["roc_auc"]
+
+    # (2) Neural decode: same pipeline, a held-out split of the neural demo.
     _Xn = neu["X_neural"].astype(float); _yn = neu["y"].astype(int)
     _perm = np.random.RandomState(0).permutation(len(_yn))
     _mn = cu.make_mlp(); _mn.fit(_Xn[_perm[:560]], _yn[_perm[:560]])
-    neural_auc = cu.eval_binary(_yn[_perm[560:]], _mn.predict_proba(_Xn[_perm[560:]])[:, 1])["roc_auc"]
+    neural_auc = cu.eval_binary(_yn[_perm[560:]], _mn.predict_proba(_Xn[_perm[560:]])[:, 1])["roc_auc"]  # <<< EDIT: read "roc_auc"
     return heldout_auc, neural_auc
 
 
@@ -850,8 +960,10 @@ def _(mo):
         mn = cu.make_mlp(); mn.fit(Xn[perm[:560]], yn[perm[:560]])
         neural_auc = cu.eval_binary(yn[perm[560:]], mn.predict_proba(Xn[perm[560:]])[:, 1])["roc_auc"]
         ```
-        Note we do **not** assert LOCO < within-cage here — on this bundle the gap is inverted (Cage 16 is a
-        cleaner female control cage). The graded claim is the held-out AUC band and beating chance on neurons.
+        The two edits are: score `Xh` (not `X`) for the held-out behavior AUC, and read the
+        `"roc_auc"` key for the neural AUC. We deliberately do **not** expect held-out AUC to be lower
+        than within-cage here — on this dataset the held-out cage is a cleaner female control cage, so
+        the gap is reversed. The graded claims are the held-out AUC band and beating chance on neurons.
         """)})
     return
 
@@ -862,7 +974,7 @@ def _(heldout_auc, mo, neural_auc):
     _ok_neu = neural_auc > 0.90                    # pinned ~1.000; assert well above chance
     _ok = _ok_ho and _ok_neu
     _color = "#2ca02c" if _ok else "#e45756"
-    _msg = "PASS — the decoder graduates." if _ok else "check your fit/split"
+    _msg = "PASS" if _ok else "check your fit and split"
     mo.md(
         f"""
         <div style="border:2px solid {_color};border-radius:8px;padding:10px 14px;background:#fafafa">
@@ -878,11 +990,14 @@ def _(heldout_auc, mo, neural_auc):
 # ============================================================================ readout board (bottom)
 @app.cell(hide_code=True)
 def _(bench, go, mo, res_ho):
+    # Final Readout Board. FIX: Gauge B is mode="gauge+number" (delta removed) for the same reason as
+    # the top board — the benchmark is shown as the red threshold marker, so a delta against it is
+    # redundant and rendered a meaningless "≈0.000".
     _b = bench("B", "NB08", "held-out cage decode", 0.86)
     _auc = res_ho.get("roc_auc", float("nan"))
     _fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta", value=_auc, delta={"reference": _b, "valueformat": ".3f"},
-        title={"text": f"Gauge B · MISSION COMPLETE<br><sub>Cage 16 held-out AUC vs benchmark {_b:.2f}</sub>"},
+        mode="gauge+number", value=_auc,
+        title={"text": f"Gauge B · held-out ROC-AUC<br><sub>Cage 16, benchmark {_b:.2f} (red line)</sub>"},
         gauge={"axis": {"range": [0.5, 1.0]}, "bar": {"color": "#2ca02c"},
                "threshold": {"line": {"color": "#e45756", "width": 3}, "value": _b}}))
     _fig.update_layout(height=280, margin=dict(l=30, r=30, t=70, b=10), template="plotly_white")
@@ -890,37 +1005,36 @@ def _(bench, go, mo, res_ho):
     return
 
 
-# ============================================================================ threw-away / ship-next
+# ============================================================================ limits / next
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## What we threw away · how it breaks
+        ## What this decoder ignores, and how it can fail
 
-        - **Time.** The decoder reads 19 window-summary features — it collapsed the whole 130-frame trajectory
-          into means/maxes. A fast feint and a slow menace with the same summary look identical to it.
-        - **Failure modes on this data.** (1) A decoder can secretly learn the *cage* instead of the behavior —
-          Cage-16's tail-mark dropout could be a giveaway rather than the aggression; leave-one-cage-out is
-          the guard, but only for the cages you held out. (2) The **label-noise ceiling** is real: ~16%
-          identity error + boundary `mlp_fp` ambiguity caps accuracy no matter the model. (3) Under class
-          imbalance a mis-set threshold silently wrecks precision or recall — the opto readout lives or dies
-          on that one number.
-        - **How would you analyze this?** You have a validated decoder. **Design the opto experiment it
-          unblocks:** which cell type in VMHvl, what stim protocol, and — critically — *how would you
-          time-align the decoder's per-event calls to the laser pulses* so a shift in detected aggression is
-          causally attributable and not a threshold artifact?
+        - **Time.** The decoder reads 19 window-summary features, which collapse the whole 130-frame
+          trajectory into means and maxima. A fast feint and a slow approach with the same summary look
+          identical to it.
+        - **Failure modes on this data.**
+          1. A decoder can accidentally learn the *cage* instead of the behavior — a cage-specific
+             quirk such as tail-mark dropout can be a giveaway. Leave-one-cage-out is the guard against
+             this, but only for the cages you actually held out.
+          2. The **label-noise ceiling** is real: roughly 16% identity error plus the boundary
+             `mlp_fp` ambiguity caps accuracy no matter how good the model is.
+          3. Under class imbalance, a poorly chosen threshold quietly wrecks precision or recall.
+             Whenever the readout is a single detected rate, that one number depends on the threshold.
+        - **A question to think through.** You now have a validated decoder. If you were to use it to
+          test a manipulation, how would you align the decoder's per-event calls in time to the
+          manipulation, so that a change in detected aggression can be attributed to the manipulation
+          rather than to a threshold artifact?
 
-        ## What we ship next
+        ## What comes next
 
-        The readout is validated: **11,700 raw numbers per event → one trustworthy decision on a cage you
-        never trained on**, plus a pipeline that reads a population raster with the same code. Memo back from
-        the circuit team: *"Readout validated — opto trial GREEN-LIT for Cage 16."*
-
-        *Neuroscience connection (close):* every stage you built — detection, reference frames, features,
-        rhythm, manifolds, syllables, grammar, decoding — has a neural twin, and you have now run the last one
-        on actual neurons. Next week each stage gets pointed at brain data, and you already know how to run
-        it.
+        The readout is validated: 11,700 raw numbers per event reduced to one trustworthy decision on a
+        cage the decoder never trained on, plus a demonstration that the same code reads a neural
+        population. In Week 2, the same processing steps — detection, reference frames, features,
+        rhythm, dimensionality reduction, and decoding — are applied to real brain-imaging data.
         """
     )
     return

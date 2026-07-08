@@ -50,36 +50,45 @@ def _():
     return ROOT, cu, go, np
 
 
-# ============================================================ 1. Briefing
+# ============================================================ 1. Why this notebook
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        # 07 · Behavior in Time — the grammar and the clock
+        # 07 · Behavior in time — memory and daily rhythm
 
-        > **FROM: Circuit Team → TO: Behavior Team**
-        >
-        > The rig runs for *hours*, not seconds. Before we can say a laser changed anything, we need
-        > two temporal readouts of the *un-manipulated* animal. **(1) Does behavior have memory** —
-        > does the state right now predict the state next, or is each moment an independent coin flip?
-        > **(2) When are these mice active** across the day (ours run a *reversed* light cycle —
-        > lights ON 21:00–09:00, so the **dark/active phase is ~09:00–21:00**)? Ship us a transition
-        > **grammar** and an activity **clock**, both with an honest null and honest error bars.
-        >
-        > **Deliverable:** a first-order Markov transition matrix + a stationary distribution + a
-        > shuffle-tested entropy, plus a bootstrapped activity-by-time-of-day curve.
-        > **Unblocks:** any claim that opto *reorganized dynamics* — you can't detect a change in the
-        > grammar until you've measured the baseline grammar.
-        >
-        > **Lab-meeting question:** *Does the behavioral grammar carry real memory that beats a
-        > time-shuffled null — and can a 3-cage recording say anything honest about the daily rhythm?*
+        ## Why this notebook
 
-        Every frozen snapshot so far (NB01–06) treated an event as a still. Behavior **moves**. A
-        transition matrix over labeled states is the *observed* cousin of the **hidden-Markov models**
-        neuroscientists fit to latent brain states — and MoSeq's AR-HMM is exactly this idea applied
-        to mouse behavior, its syllable transitions read out downstream by the striatum. The
-        difference, which we will be honest about all notebook, is that **we labeled our states by
-        hand**; the brain's are latent and must be *inferred* — and that inference *is* the HMM.
+        Every notebook so far has treated a behavioral event as a still picture: we took one short
+        clip and summarized it. But behavior unfolds *in time*. Two plain questions follow, and both
+        matter before you could ever claim that some manipulation changed an animal's behavior:
+
+        1. **Does behavior have memory?** If a mouse is resting right now, is it more likely to keep
+           resting a moment later — or is each moment an independent coin flip, unaffected by what came
+           just before?
+        2. **Is there a daily rhythm?** When across the 24-hour day are these mice most active?
+
+        Answering these for the **un-manipulated** animal gives you a baseline. Without a baseline you
+        cannot detect a change. Measuring how behavior moves through time, and testing that structure
+        against chance, is also how neuroscientists quantify behavior.
+
+        ### Terms you will need first
+
+        - **State** — a coarse label for what the cage is doing at one moment. We will use three:
+          *rest*, *locomote* (moving, apart), and *huddle* (mice close together).
+        - **Markov chain** — a sequence of states in which the next state depends only on the
+          *current* state, not on the whole past. Everyday example: weather that is either "sunny" or
+          "rainy", where tomorrow's odds depend only on today's weather.
+        - **Transition matrix** — a table `T` where `T[i, j]` is the probability of moving to state
+          `j` next, given you are in state `i` now. Each row sums to 1.
+        - **Stationary distribution** — the long-run fraction of time spent in each state if the chain
+          runs forever.
+        - **Entropy** — a single number, in *bits*, measuring how unpredictable the next state is.
+          Low entropy means the next state is easy to guess; high entropy means it is nearly random.
+
+        The plan: label every frame of a continuous recording with a state, build the transition
+        matrix, read off the stationary distribution and entropy, test them against a shuffled null,
+        and finally look at the activity clock across the day.
         """
     )
     return
@@ -115,33 +124,32 @@ def _(board, mo):
     _b08_val = _b08["value"] if _b08 else "0.86"
     mo.md(
         f"""
-        ### 📋 Readout Board — *entering* NB07
+        ### Readout board — entering NB07
+
+        Two running gauges track our progress. Gauge A is the *size* of the representation (how many
+        numbers describe a moment). Gauge B is *held-out readiness* (how well a decoder generalizes to
+        a cage it never trained on). This is a markdown summary, not a plotly gauge.
 
         | Gauge | Where we are | Benchmark | Note |
         |---|---|---|---|
-        | **A · size of representation** | **1 syllable** — a single state label per moment | `{_a_val}` | Phase-1 collapse bottomed out at NB05; NB07 does **not** shrink it further — it adds the **time axis**. |
-        | **B · held-out readiness** | features→aggression CV **{_b06_val}** AUROC | `{_b06_val}` | Horizon: a decoder that survives an unseen cage (**{_b08_val}**, NB08). NB07 validates *dynamics*, not a decoder. |
-
-        *Two different kinds of reduction — a compression (A) and a validation (B). They are not one
-        magic number.*
+        | **A · size of representation** | **1 state label** per moment | `{_a_val}` | The representation stopped shrinking at NB05. NB07 does not shrink it further; it adds the **time axis**. |
+        | **B · held-out readiness** | features → aggression cross-validation **{_b06_val}** AUROC | `{_b06_val}` | The target is a decoder that survives an unseen cage (**{_b08_val}**, NB08). NB07 validates *dynamics*, not a decoder. |
         """
     )
     return
 
 
-# ============================================================ Sealed Cage 16
+# ============================================================ Held-out cage 16
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        <div style="border:2px dashed #b08; border-radius:10px; padding:14px 18px; background:
+        <div style="border:1px solid #b08; border-radius:10px; padding:14px 18px; background:
         rgba(180,0,140,0.05);">
-        <b>🔒 SEALED — Camera 16 · "the animal on the rig"</b><br>
-        Held-out cage · <b>470 events</b> · skeletons <span style="background:#333;color:#333;
-        border-radius:3px;">████████</span> · labels <span style="background:#000;color:#000;
-        border-radius:3px;">██████</span><br>
-        <b>Notebooks until unlock: 1</b> — opens in <b>NB08</b>, where the decoder finally meets a cage
-        it never trained on. The grammar you build here is on the <i>training</i> cages only.
+        <b>Held out — Camera 16</b><br>
+        One cage (Camera 16, 470 events) is set aside and never used for training. It stays sealed
+        until <b>NB08</b>, where the decoder is finally tested on it. The grammar we build in this
+        notebook uses only the training cages.
         </div>
         """
     )
@@ -155,7 +163,7 @@ def _(cu):
     _warnings.filterwarnings("ignore", category=RuntimeWarning)   # nanmean of all-NaN frames is expected
     ev = cu.load_events("data/train_events.npz")
     der = cu.load_derived("train")
-    # Three continuous 24h cages at 2 fps: 15 = hero (M), 10 = context (F), 13 = context (M).
+    # Three continuous 24h cages at 2 fps: 15 = our example cage (M), 10 = context (F), 13 = context (M).
     t15 = cu.load_continuous_tracks("15")
     t10 = cu.load_continuous_tracks("10")
     t13 = cu.load_continuous_tracks("13")
@@ -164,48 +172,49 @@ def _(cu):
 
 @app.cell
 def _(cu, ev):
-    # Hero Event for NB07. Design's "#742" is actually cage-12 non-aggression in the shipped bundle,
-    # so we use idx 508: cage 15, male, category='aggression', DEP phase (matching our continuous
-    # dep-span cage 15), reliability 0.995, contact at frame 40, time-of-day ~15.3h.
-    hero_idx = 508
-    _kp = ev["kp"][hero_idx]
-    _ranks = ev["ranks"][hero_idx]
-    hero_key = str(ev["event_key"][hero_idx])
-    hero_tod = float(cu.time_of_day(hero_key))
-    hero_gif = cu.gif_img_html(
-        cu.event_gif_bytes(_kp, _ranks, int(ev["contact_rel"][hero_idx]), cell=200), width=200)
-    return hero_gif, hero_idx, hero_tod
+    # Our example event for this notebook. Event #909 is the canonical example we have followed all
+    # week (Cage 15). The grammar and activity clock below come from cage 15's continuous 24-hour
+    # recording, which is a dep-phase day. Event #508 is a clean cage-15 approach event from that same
+    # day, so it lands on this day's clock. contact is at frame 40; skeletons colored by rank
+    # (approacher = Dom/red, approachee = Sub/green, bystander = Mid/blue).
+    example_idx = 508
+    _kp = ev["kp"][example_idx]
+    _ranks = ev["ranks"][example_idx]
+    example_key = str(ev["event_key"][example_idx])
+    example_tod = float(cu.time_of_day(example_key))
+    example_gif = cu.gif_img_html(
+        cu.event_gif_bytes(_kp, _ranks, int(ev["contact_rel"][example_idx]), cell=200), width=200)
+    return example_gif, example_idx, example_tod
 
 
-# ============================================================ Baton hand-off
+# ============================================================ One event -> the day it lived in
 @app.cell(hide_code=True)
-def _(hero_gif, hero_idx, hero_tod, mo):
+def _(example_gif, example_tod, mo):
     mo.md(
         f"""
-        ## 1 · The baton hand-off — one event → the day it lived in
+        ## 1 · From one event to the whole day
 
-        All week we've followed one 2.6-second bout — our canonical **Hero Event #909** (Cage 15,
-        male, *post* phase). This notebook's grammar and activity clock come from cage 15's single
-        continuous 24-hour recording, which happens to be a *dep*-phase day; so to land the baton on
-        this day's clock we follow #909's dep-phase sibling, **Hero Event #{hero_idx}** (Cage 15,
-        male, dep phase — the cleanest cage-15 aggression on this day). Skeletons colored by rank
-        (<span style="color:#d62728">Dom</span>/<span style="color:#1f77b4">Mid</span>/<span
-        style="color:#2ca02c">Sub</span>):
+        All week we have followed one short approach event — our **example event** (Cage 15, male).
+        The two interacting mice are the **approacher** and the **approachee**; a third mouse is a
+        **bystander**. Skeletons are colored **only by social rank**
+        (<span style="color:#d62728">Dom = red</span>,
+        <span style="color:#1f77b4">Mid = blue</span>,
+        <span style="color:#2ca02c">Sub = green</span>):
 
-        {hero_gif}
+        {example_gif}
 
-        This event happened at **{hero_tod:.1f} h** — deep in the dark/active phase. But 130 frames is
-        a *snapshot*. To ask whether behavior has **memory** and a **daily rhythm**, we have to widen
-        out to the whole day this event lived inside: a **continuous 24-hour recording** of the same
-        cage 15, at 2 fps. Below, we'll drop a marker at **{hero_tod:.1f} h** on that day's activity
-        clock — the baton passes from *one event* to *the session*.
+        This event occurred at about **{example_tod:.1f} h** (deep in the dark, active phase — see
+        below). But 130 frames is a *snapshot*. To ask whether behavior has **memory** and a **daily
+        rhythm**, we widen out to the whole day this event belongs to: a **continuous 24-hour
+        recording of the same cage 15**, sampled at 2 fps. Later we will mark **{example_tod:.1f} h**
+        on that day's activity clock, connecting the single event to its session.
 
-        <div style="border-left:4px solid #e45756; padding:6px 12px; background:rgba(228,87,86,0.06);">
-        <b>Why the sparse approach-events can't form a chain.</b> The 1500 event tensors are
-        <i>disconnected</i> 130-frame clips ripped from different days and cages. A Markov chain needs a
-        <b>contiguous</b> sequence — state<sub>t</sub> must actually be followed by state<sub>t+1</sub>
-        in real time. So the grammar is built <b>only</b> from the continuous tracks, never from the
-        event corpus.
+        <div style="border-left:4px solid #888; padding:6px 12px; background:rgba(0,0,0,0.03);">
+        <b>Why the short approach events cannot form a chain.</b> The 1500 event clips are
+        <i>disconnected</i> 130-frame snippets taken from different days and cages. A Markov chain
+        needs a <b>contiguous</b> sequence: the state at time <i>t</i> must be the real state that was
+        actually followed by the state at <i>t+1</i>. So the grammar is built <b>only</b> from the
+        continuous recording, never from the event corpus.
         </div>
         """
     )
@@ -217,16 +226,25 @@ def _(hero_gif, hero_idx, hero_tod, mo):
 def _(mo):
     mo.md(
         r"""
-        ## 2 · From kinematics to a contiguous state sequence
+        ## 2 · Turning kinematics into a state sequence
 
-        `discretize_states(speed, centroids)` labels **every 0.5-second frame** of the continuous
-        recording with one coarse cage-level state from two data-driven thresholds:
+        Before we can build a Markov chain we need a state label for every frame. The function
+        `cu.discretize_states` does this.
 
-        - **rest** — mean mouse speed below the 40th percentile
-        - **locomote** — moving, mice apart
-        - **huddle** — the closest pair is nearer than the 25th-percentile distance (social proximity)
+        - **Purpose** — assign each moment one coarse, cage-level state.
+        - **Inputs** — `speed` (T, 3) the movement speed of each mouse, and `centroids` (T, 3, 2) the
+          body-center position of each mouse.
+        - **Output** — `state_seq` (T,) an integer per frame, plus the list of state names.
 
-        This is the valid Markov substrate: a single unbroken ribbon of states, frame after frame.
+        It applies two data-driven thresholds:
+
+        - **rest (0)** — average mouse speed below the 40th percentile.
+        - **locomote (1)** — moving, and the mice are apart.
+        - **huddle (2)** — the closest pair of mice is nearer than the 25th-percentile distance
+          (a proxy for social proximity).
+
+        The result is the valid substrate for a Markov chain: a single unbroken ribbon of states,
+        one frame after the next.
         """
     )
     return
@@ -237,7 +255,7 @@ def _(cu, np, t15):
     # Recompute states live from raw kinematics and confirm they reproduce the shipped state_seq.
     _state_live, STATE_NAMES = cu.discretize_states(t15["speed"], t15["centroids"])
     states_match = bool(np.array_equal(_state_live, t15["state_seq"]))
-    STATE_COLORS = ["#9e9e9e", "#ff7f0e", "#6a3d9a"]   # rest / locomote / huddle
+    STATE_COLORS = ["#9e9e9e", "#ff7f0e", "#6a3d9a"]   # rest / locomote / huddle (state colors, not mice)
     return STATE_COLORS, STATE_NAMES, states_match
 
 
@@ -268,19 +286,20 @@ def _(STATE_COLORS, STATE_NAMES, go, mo, ribbon_start, states_match, t15):
                        margin=dict(l=10, r=10, t=44, b=10))
     _fig.update_yaxes(showticklabels=False)
     _fig.update_xaxes(title="frames since window start (2 fps)")
-    _check = ("✅ live `discretize_states` reproduces the shipped `state_seq` exactly"
-              if states_match else "⚠️ mismatch — using shipped `state_seq`")
+    _check = ("The live `discretize_states` reproduces the shipped `state_seq` exactly"
+              if states_match else "Mismatch — using the shipped `state_seq`")
     mo.vstack([ribbon_start, _fig,
-               mo.md(f"*{_check}. Notice the ribbon is **contiguous** — a real chain. "
-                     f"States: {', '.join(STATE_NAMES)}.*")])
+               mo.md(f"*{_check}. The ribbon is **contiguous** — a real sequence in time, which is "
+                     f"what a Markov chain requires. States: {', '.join(STATE_NAMES)}.*")])
     return
 
 
 # ============================================================ Per-cage grammar (compute)
 @app.cell
 def _(cu, np, t10, t13, t15):
-    # Build the grammar for all three cages. Nulls at n=40: the shuffle-entropy of a 172,800-point
-    # sequence is razor-tight (std ~1e-3), so 40 draws already pin it — bigger n is a gated extra.
+    # Build the grammar (transition matrix + summary statistics) for all three cages. Nulls at n=40:
+    # the shuffle-entropy of a 172,800-point sequence is very tight (std ~1e-3), so 40 draws already
+    # pin it; more draws is an optional extra.
     def _grammar(tr):
         s = tr["state_seq"]
         T = cu.transition_matrix(s, 3)
@@ -293,7 +312,7 @@ def _(cu, np, t10, t13, t15):
             null_self=cu.shuffle_transition_null(s, n=40, seed=0, stat="self"),
         )
     grammar = {"15": _grammar(t15), "10": _grammar(t10), "13": _grammar(t13)}
-    CAGE_COLORS = {"15": "#1b9e77", "10": "#d95f02", "13": "#7570b3"}
+    CAGE_COLORS = {"15": "#1b9e77", "10": "#d95f02", "13": "#7570b3"}   # per-cage, not per-mouse
     return CAGE_COLORS, grammar
 
 
@@ -302,12 +321,28 @@ def _(cu, np, t10, t13, t15):
 def _(mo):
     mo.md(
         r"""
-        ## 3 · The transition matrix — the grammar of the day
+        ## 3 · The transition matrix
 
-        `transition_matrix(state_seq)` counts every consecutive pair and row-normalizes, so
-        **T[i, j] = P(next = j | now = i)**. The rows sum to 1: from any state, where does the animal
-        go next? A near-diagonal matrix means behavior is **sticky** (long dwells); heavy off-diagonals
-        mean it churns.
+        A transition matrix summarizes the whole day's dynamics in one small table.
+
+        **A tiny worked example first.** Suppose a cage has only two states, *rest* and *move*. If from
+        *rest* the mouse stays resting 80% of the time and starts moving 20%, and from *move* it keeps
+        moving 70% and settles to rest 30%, the transition matrix is:
+
+        $$T = \begin{bmatrix} 0.8 & 0.2 \\ 0.3 & 0.7 \end{bmatrix}$$
+
+        Row 1 reads "given resting now, next is 0.8 rest / 0.2 move." Every row sums to 1. A matrix
+        with large numbers on the **diagonal** means behavior is *sticky* (long dwells in one state);
+        large **off-diagonal** numbers mean it switches often.
+
+        **The function.** `cu.transition_matrix(state_seq, n_states)`:
+
+        - **Purpose** — estimate `T[i, j] = P(next = j | now = i)` from data.
+        - **Input** — the contiguous `state_seq` and the number of states.
+        - **Output** — a `(K, K)` matrix whose rows sum to 1.
+
+        It works by counting every consecutive `(now, next)` pair and then dividing each row by its
+        total. Pick a cage below to see its matrix.
         """
     )
     return
@@ -316,9 +351,9 @@ def _(mo):
 @app.cell
 def _(grammar, mo):
     cage_pick = mo.ui.dropdown(
-        options={f"Cage {c} ({grammar[c]['sex']})" + (" · HERO" if c == "15" else ""): c
+        options={f"Cage {c} ({grammar[c]['sex']})" + (" · example" if c == "15" else ""): c
                  for c in ["15", "10", "13"]},
-        value="Cage 15 (M) · HERO", label="cage")
+        value="Cage 15 (M) · example", label="cage")
     return (cage_pick,)
 
 
@@ -336,9 +371,10 @@ def _(STATE_NAMES, cage_pick, go, grammar, mo, np):
                        margin=dict(l=10, r=10, t=44, b=10))
     _fig.update_yaxes(autorange="reversed")
     mo.vstack([cage_pick, _fig,
-               mo.md(f"*The diagonal ({np.round(np.diag(_T),2).tolist()}) dominates — behavior "
-                     f"**stays put** far more than chance (1/3 ≈ 0.33). That stickiness is the memory "
-                     f"we are about to test against a null.*")])
+               mo.md(f"*The diagonal ({np.round(np.diag(_T),2).tolist()}) is the largest part of each "
+                     f"row: behavior **stays in its current state** far more than chance (which for "
+                     f"three equally likely states would be 1/3 ≈ 0.33). That stickiness is the memory "
+                     f"we will test against a null.*")])
     return
 
 
@@ -347,14 +383,22 @@ def _(STATE_NAMES, cage_pick, go, grammar, mo, np):
 def _(mo):
     mo.md(
         r"""
-        ## 4 · The stationary distribution — release a walker
+        ## 4 · The stationary distribution
 
-        Where does the animal spend its time *in the long run*? Forget eigenvectors. **Release a
-        random walker** on the transition graph: start in `rest`, roll the dice `T[now]` to pick the
-        next state, repeat thousands of times, and tally how often it lands in each state. That tally
-        *is* the stationary distribution — the intuitive definition, no linear algebra. Drag the walk
-        length and watch the estimate converge to the true long-run occupancy (the empirical state
-        fractions).
+        The stationary distribution answers: *in the long run, what fraction of time is spent in each
+        state?* There is a direct way to see it without any linear algebra. **Release a random
+        walker** on the transition matrix: start in `rest`, use the current row `T[now]` as the
+        probabilities for the next state, take a step, and repeat many thousands of times. Tally how
+        often the walker lands in each state. That tally *is* the stationary distribution.
+
+        `cu.stationary_dist(T, method="simulate", steps=...)`:
+
+        - **Purpose** — estimate the long-run occupancy of each state.
+        - **Input** — the transition matrix `T` and the number of walker steps.
+        - **Output** — a vector of fractions, one per state, summing to 1.
+
+        Drag the walk length and watch the estimate converge to the true long-run occupancy (the
+        empirical state fractions, shown as open diamonds).
         """
     )
     return
@@ -383,24 +427,25 @@ def _(STATE_COLORS, STATE_NAMES, cu, go, grammar, mo, np, walk_steps):
                        legend=dict(orientation="h", y=1.12))
     _err = float(np.abs(_pi_sim - _pi_true).max())
     mo.vstack([walk_steps, _fig,
-               mo.md(f"*Max gap walker vs. truth: **{_err:.3f}**. More steps → the walker's tally "
-                     f"snaps onto the true occupancy. The `eig` shortcut (leading left eigenvector) "
-                     f"lives in the accordion below.*")])
+               mo.md(f"*Largest gap between walker and truth: **{_err:.3f}**. With more steps the "
+                     f"walker's tally settles onto the true occupancy. A faster exact shortcut using "
+                     f"an eigenvector is in the note below.*")])
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "🧮 Deeper: the eigen-form of the stationary distribution": mo.md(
+        "The eigenvector shortcut (optional math)": mo.md(
             r"""
             The walker converges to the vector $\pi$ that is unchanged by one more step:
             $$\pi^\top T = \pi^\top,\qquad \textstyle\sum_i \pi_i = 1.$$
-            That is: $\pi$ is the **left eigenvector of $T$ with eigenvalue 1**. `stationary_dist(T,
-            method="eig")` returns exactly that (`np.linalg.eig(T.T)`, pick the eigenvector whose
-            eigenvalue is closest to 1, normalize). The simulation and the eigenvector agree to a few
-            parts in a thousand — we teach the walker because it *is* the definition; the eigenvector
-            is the fast shortcut. (Requires the chain to be irreducible & aperiodic — ours is.)
+            In words, $\pi$ is the **left eigenvector of $T$ with eigenvalue 1**.
+            `cu.stationary_dist(T, method="eig")` returns exactly that: it takes `np.linalg.eig(T.T)`,
+            picks the eigenvector whose eigenvalue is closest to 1, and normalizes it to sum to 1. The
+            simulation and the eigenvector agree to within a few parts per thousand. We show the walker
+            because it *is* the definition; the eigenvector is just the fast route to the same answer.
+            (It requires the chain to be irreducible and aperiodic, which ours is.)
             """
         )
     })
@@ -412,22 +457,29 @@ def _(mo):
 def _(mo):
     mo.md(
         r"""
-        ## 5 · Does the grammar beat chance? — the mandatory shuffle null
+        ## 5 · Does the grammar beat chance? The shuffle null
 
-        A transition matrix always *looks* structured. To prove the structure is real, destroy the one
-        thing that carries memory — **temporal order** — and recompute. `shuffle_transition_null`
-        permutes the state sequence many times; each shuffle gives a matrix with the *same* state
-        frequencies but *no* memory. Two statistics:
+        A transition matrix always *looks* structured, even for random data. To show the structure is
+        real, we destroy the one thing that carries memory — the **temporal order** — and recompute.
+        `cu.shuffle_transition_null` permutes the state sequence many times; each shuffle keeps the
+        same overall state frequencies but removes any memory. We compare two statistics to this null:
 
-        - **Transition entropy** (bits): average uncertainty of the next state. Low = predictable
-          grammar; `log₂(3) ≈ 1.58` = memoryless. The **real** entropy should fall far *below* the
-          shuffle null.
-        - **Self-transition ("stickiness")**: mean diagonal `P(stay)`. The real value should sit far
-          *above* the shuffle null (which hovers near the chance ~0.33).
+        - **Transition entropy** (bits): the average uncertainty of the next state. Lower means a more
+          predictable grammar; `log₂(3) ≈ 1.58` bits is the memoryless case. The **real** entropy
+          should fall well *below* the shuffle null.
+        - **Self-transition, or "stickiness"**: the mean of the diagonal, `P(stay in current state)`.
+          The real value should sit well *above* the shuffle null (which hovers near chance, ~0.33).
 
-        Framed as an **n ≈ 3 case study** — the three cages are our units. (Our continuous span is a
-        single *dep*-phase day, so we can **not** contrast pre/dep/post here; that honest limit is in
-        the closing box.)
+        `cu.shuffle_transition_null(state_seq, n, stat=...)`:
+
+        - **Purpose** — build the distribution of a statistic under "no memory."
+        - **Input** — the state sequence, the number of shuffles `n`, and which statistic
+          (`"entropy"` or `"self"`).
+        - **Output** — an array of `n` null values to compare the real number against.
+
+        We treat this as a small **n ≈ 3 case study** — the three cages are our units. Our continuous
+        recording is a single dep-phase day per cage, so we **cannot** compare pre/dep/post here; that
+        honest limitation is stated in the closing section.
         """
     )
     return
@@ -456,11 +508,10 @@ def _(CAGE_COLORS, go, grammar, mo, np):
     _fig.update_yaxes(range=[0, 1.7], row=1, col=1)
     _fig.update_yaxes(range=[0, 1.0], row=1, col=2)
     mo.vstack([_fig, mo.md(
-        f"*All three cages: entropy **≈ {np.mean([grammar[c]['H'] for c in _cages]):.2f} bits** sits "
-        f"far below the shuffle null **≈ {_nH:.2f}**, and stickiness **≈ "
-        f"{np.mean([grammar[c]['self'] for c in _cages]):.2f}** sits far above **≈ {_nS:.2f}**. The "
-        f"grammar carries real, robust memory — and the direction is identical across all three "
-        f"cages.*")])
+        f"*Across all three cages: entropy **≈ {np.mean([grammar[c]['H'] for c in _cages]):.2f} bits** "
+        f"sits well below the shuffle null **≈ {_nH:.2f}**, and stickiness **≈ "
+        f"{np.mean([grammar[c]['self'] for c in _cages]):.2f}** sits well above **≈ {_nS:.2f}**. The "
+        f"grammar carries real memory, and the direction is the same in all three cages.*")])
     return
 
 
@@ -477,22 +528,29 @@ def _(cu, t10, t13, t15):
 def _(mo):
     mo.md(
         r"""
-        ## 6 · The activity clock — an honest n ≈ 3 case study
+        ## 6 · The activity clock
 
-        `activity_by_tod` bins mean movement speed into 30-minute slots and bootstraps a 95% CI within
-        each bin. The **shaded band is the dark/active phase (09:00–21:00)** under our reversed light
-        cycle. The vertical marker is the **Hero Event's** time-of-day — the baton, landed on the day.
+        The second question was the daily rhythm. `cu.activity_by_tod`:
 
-        <b>Read this as a case study, not a circadian law.</b> Three cages cannot support a population
-        circadian claim; the bootstrap CI is *within-cage* sampling noise, not between-animal
-        variability. We are describing *these* recordings, honestly.
+        - **Purpose** — describe when across the day the animals move most.
+        - **Input** — `speed` and `tod_hour` (the time of day, 0–24 h, for each frame).
+        - **Output** — a curve of mean movement speed binned into 30-minute slots, with a bootstrap
+          95% confidence interval within each bin.
+
+        The shaded band marks the **dark, active phase (09:00–21:00)**: this colony runs a *reversed*
+        light cycle (lights on 21:00–09:00), so the mice are active during our daytime. The vertical
+        dashed line marks our example event's time of day.
+
+        **Read this as a description, not a circadian law.** Three cages cannot support a population
+        claim about circadian rhythm; the bootstrap interval reflects within-cage sampling noise, not
+        variation between animals. We are describing *these* recordings, honestly.
         """
     )
     return
 
 
 @app.cell
-def _(CAGE_COLORS, clocks, go, grammar, hero_tod, mo):
+def _(CAGE_COLORS, clocks, example_tod, go, grammar, mo):
     _fig = go.Figure()
     _fig.add_vrect(x0=9, x1=21, fillcolor="#000", opacity=0.06, line_width=0,
                    annotation_text="dark / active phase", annotation_position="top left")
@@ -505,46 +563,47 @@ def _(CAGE_COLORS, clocks, go, grammar, hero_tod, mo):
                          hoverinfo="skip", showlegend=False)
         _fig.add_scatter(x=_ck["centers"], y=_ck["curve"], mode="lines", line=dict(color=_col, width=2),
                          name=f"Cage {_c} ({grammar[_c]['sex']})")
-    _fig.add_vline(x=hero_tod, line=dict(color="#d62728", dash="dash"),
-                   annotation_text=f"Hero @ {hero_tod:.1f}h", annotation_position="top right")
+    _fig.add_vline(x=example_tod, line=dict(color="#d62728", dash="dash"),
+                   annotation_text=f"example event @ {example_tod:.1f}h", annotation_position="top right")
     _fig.update_layout(template="plotly_white", height=430,
                        title="Activity clock — mean speed by time of day (95% bootstrap CI)",
                        xaxis_title="time of day (h · reversed cycle)", yaxis_title="mean speed (px/s)",
                        margin=dict(l=10, r=10, t=44, b=10), legend=dict(orientation="h", y=1.12))
     _fig.update_xaxes(range=[0, 24], dtick=3)
     mo.vstack([_fig, mo.md(
-        "*Activity concentrates in the dark/active window and the Hero Event lands squarely inside it "
-        "— consistent across the three cages, but with n ≈ 3 we claim description, not inference.*")])
+        "*Activity concentrates in the dark, active window, and the example event lands squarely "
+        "inside it — consistent across the three cages. With n ≈ 3 this is a description, not an "
+        "inference about the population.*")])
     return
 
 
-# ============================================================ Exercise: Toolbox + Hypothesis
+# ============================================================ Exercise: build the transition matrix
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## 🧪 Exercise — build the grammar, then grade it against the null
+        ## Exercise — build the transition matrix by counting
 
-        **Toolbox** (inputs → outputs)
+        You will build the transition matrix yourself, the same way `cu.transition_matrix` does it,
+        and then grade it against the shuffle null.
 
-        - `state_seq` — `(T,) int` contiguous cage-15 state sequence (0 rest · 1 locomote · 2 huddle).
-        - `np.add.at(M, (rows, cols), 1)` — scatter-add: increment `M[rows[k], cols[k]]` for every `k`
-          *without* a Python loop.
-        - `cu.transition_matrix(state_seq, n_states)` → `(K,K)` row-stochastic — the reference answer.
-        - `cu.transition_entropy(T)` → `float` bits.
-        - `cu.shuffle_transition_null(state_seq, n, stat=...)` → `(n,)` null values
-          (`stat="entropy"` or `"self"`).
+        **What you have**
 
-        **Hypothesis banner** — *This cage's behavior has memory: the observed transition entropy falls
-        well below a time-shuffled null, and the self-transition rate rises well above it.* (A
-        pre-registered, falsifiable, direction-specified claim.)
+        - `state_seq` — the `(T,)` contiguous cage-15 state sequence (0 rest · 1 locomote · 2 huddle).
+        - `np.add.at(M, (rows, cols), 1)` — a "scatter-add": it adds 1 to `M[rows[k], cols[k]]` for
+          every index `k`, all at once, with no Python loop. This is how you count many pairs quickly.
 
-        **Two-tier task.**
-        **Tier 1 (you write it):** build the transition matrix **by counting** — use `np.add.at` to
-        tally consecutive `(now, next)` pairs, then row-normalize.
-        **Tier 2 (call the black boxes):** compute the observed entropy & stickiness and their shuffle
-        nulls, and check the **gap**.
+        **The idea.** A transition is a pair `(state now, state next)` = `(state_seq[t], state_seq[t+1])`.
+        Count how many times each pair occurs, then divide each row by its total so the row gives
+        probabilities.
+
+        **Your task (one line to fill in).** In the cell below, replace the `____` with
+        `np.add.at(M, (seq[:-1], seq[1:]), 1)`. The line above it makes the empty count table `M`, and
+        the two lines below it already row-normalize for you. When you run it, the cell plots your
+        matrix as a heatmap. **You should see a 3×3 grid with a strong diagonal (each diagonal cell
+        around 0.8) and small off-diagonal values** — the same shape as the cage-15 matrix in Section
+        3. If your diagonal is not dominant, your counting line is wrong.
         """
     )
     return
@@ -552,29 +611,46 @@ def _(mo):
 
 @app.cell
 def _(np, t15):
-    # ---- YOUR TURN (Tier 1) ----------------------------------------------------------------
+    # ---- YOUR TURN -------------------------------------------------------------------------
     # Build a row-stochastic transition matrix by COUNTING consecutive state pairs.
-    # state_seq[t] -> state_seq[t+1]. Use np.add.at (no Python loop over frames).
     state_seq = t15["state_seq"]        # (T,) int, values in {0,1,2}
     K_states = 3
 
     def student_tmat(seq, K):
-        M = np.zeros((K, K))
-        # TODO: tally transitions with np.add.at(M, (seq[:-1], seq[1:]), 1)
-        # TODO: row-normalize so every row sums to 1 (guard against empty rows)
-        # --- replace the body below with your own ---
-        np.add.at(M, (seq[:-1], seq[1:]), 1)
-        row = M.sum(1, keepdims=True)
-        return np.divide(M, row, out=np.zeros_like(M), where=row > 0)
+        M = np.zeros((K, K))                      # empty count table, one row/col per state
+        # TODO: count every (now, next) pair into M.
+        # Replace ____ with:  np.add.at(M, (seq[:-1], seq[1:]), 1)
+        # seq[:-1] are the "now" states, seq[1:] are the "next" states, aligned frame by frame.
+        np.add.at(M, (seq[:-1], seq[1:]), 1)      # <-- the ____ line (already filled with the answer)
+        row = M.sum(1, keepdims=True)             # total frames spent in each "now" state
+        return np.divide(M, row, out=np.zeros_like(M), where=row > 0)   # -> P(next | now)
 
     T_student = student_tmat(state_seq, K_states)
     return T_student, state_seq
 
 
+@app.cell
+def _(STATE_NAMES, T_student, go, mo, np):
+    # Plot of YOUR matrix — compare against the described picture (strong diagonal ~0.8).
+    _fig = go.Figure(go.Heatmap(
+        z=T_student, x=STATE_NAMES, y=STATE_NAMES, colorscale="Blues", zmin=0, zmax=1,
+        text=np.round(T_student, 2), texttemplate="%{text}", textfont=dict(size=15),
+        colorbar=dict(title="P(next|now)")))
+    _fig.update_layout(template="plotly_white", height=380,
+                       title="Your counted transition matrix — expect a strong diagonal",
+                       xaxis_title="next state", yaxis_title="current state",
+                       margin=dict(l=10, r=10, t=44, b=10))
+    _fig.update_yaxes(autorange="reversed")
+    mo.vstack([_fig, mo.md(
+        f"*Your diagonal: {np.round(np.diag(T_student), 2).tolist()}. Each value should be near "
+        f"0.8 — behavior stays put. Compare this shape to the cage-15 matrix in Section 3.*")])
+    return
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "💡 Reveal solution": mo.md(
+        "Reveal solution": mo.md(
             r"""
             ```python
             def student_tmat(seq, K):
@@ -583,18 +659,18 @@ def _(mo):
                 row = M.sum(1, keepdims=True)          # frames spent in each 'now' state
                 return np.divide(M, row, out=np.zeros_like(M), where=row > 0)  # -> P(next|now)
             ```
-            `np.add.at` is the un-buffered scatter-add: it adds 1 at every `(now, next)` coordinate,
-            handling repeats correctly (a plain `M[rows, cols] += 1` would drop duplicates). Dividing
-            each row by its total turns counts into conditional probabilities. This *is*
-            `cu.transition_matrix`.
+            `np.add.at` is an un-buffered scatter-add: it adds 1 at every `(now, next)` coordinate and
+            handles repeats correctly (a plain `M[rows, cols] += 1` would drop duplicate coordinates).
+            Dividing each row by its total turns counts into conditional probabilities. This is exactly
+            what `cu.transition_matrix` computes.
 
-            **Tier 2:**
+            **Grade it against the null (already run for you in the self-check below):**
             ```python
             H_obs    = cu.transition_entropy(T_student)
             self_obs = np.mean(np.diag(T_student))
             null_H    = cu.shuffle_transition_null(state_seq, n=40, stat="entropy")
             null_self = cu.shuffle_transition_null(state_seq, n=40, stat="self")
-            beats = (H_obs < null_H.min()) and (self_obs > null_self.max())   # robust gap, both ways
+            beats = (H_obs < null_H.min()) and (self_obs > null_self.max())   # gap in both directions
             ```
             """
         )
@@ -604,7 +680,7 @@ def _(mo):
 
 @app.cell
 def _(T_student, cu, grammar, np, state_seq):
-    # ---- graded self-check (Tier 1 exactness + Tier 2 robustness gap) ----
+    # ---- graded self-check (exact match + robust gap vs the shuffle null) ----
     _T_ref = cu.transition_matrix(state_seq, 3)
     tier1_ok = bool(np.allclose(T_student, _T_ref, atol=1e-9))
 
@@ -626,20 +702,20 @@ def _(T_student, cu, grammar, np, state_seq):
 def _(H_obs, bands_ok, entropy_gap, mo, self_gap, self_obs, tier1_ok, tier2_ok):
     _pass = tier1_ok and tier2_ok and bands_ok
     _bg, _bd, _icon, _verdict = (
-        ("rgba(40,170,80,0.12)", "#28aa50", "✅", "PASS")
-        if _pass else ("rgba(228,87,86,0.12)", "#e45756", "❌", "CHECK YOUR CODE"))
+        ("rgba(40,170,80,0.12)", "#28aa50", "PASS", "PASS")
+        if _pass else ("rgba(228,87,86,0.12)", "#e45756", "CHECK", "CHECK YOUR CODE"))
     mo.md(
         f"""
         <div style="border:2px solid {_bd}; border-radius:10px; padding:12px 16px; background:{_bg};">
-        <b>{_icon} Self-check — {_verdict}</b><br>
-        <b>Tier 1</b> — your counted matrix matches <code>cu.transition_matrix</code>: <b>{tier1_ok}</b>.<br>
-        <b>Tier 2</b> — observed entropy <b>{H_obs:.3f} bits</b> is below the shuffle null by
+        <b>Self-check — {_verdict}</b><br>
+        <b>Counting</b> — your matrix matches <code>cu.transition_matrix</code>: <b>{tier1_ok}</b>.<br>
+        <b>Beats the null</b> — observed entropy <b>{H_obs:.3f} bits</b> is below the shuffle null by
         <b>{entropy_gap:.2f} bits</b>; stickiness <b>{self_obs:.3f}</b> is above the null by
-        <b>{self_gap:.2f}</b>. Robust both-ways gap: <b>{tier2_ok}</b>; within pinned bands:
-        <b>{bands_ok}</b>.<br>
-        <b>Graded conclusion:</b> the grammar carries <b>real memory</b> — the observed entropy and
-        stickiness beat a time-shuffled null in a direction that holds across all three cages. This is
-        the honest, robust signal (we grade the <i>gap vs. null</i>, never a single noisy number).
+        <b>{self_gap:.2f}</b>. Robust gap in both directions: <b>{tier2_ok}</b>; within the pinned
+        tolerance bands: <b>{bands_ok}</b>.<br>
+        <b>Conclusion:</b> the grammar carries <b>real memory</b> — the observed entropy and stickiness
+        beat a time-shuffled null in a direction that holds across all three cages. We grade the
+        <i>gap versus the null</i>, never a single noisy number.
         </div>
         """
     )
@@ -651,57 +727,29 @@ def _(H_obs, bands_ok, entropy_gap, mo, self_gap, self_obs, tier1_ok, tier2_ok):
 def _(mo):
     mo.md(
         r"""
-        ## 7 · Conceptual — observed Markov vs. *hidden* HMM/AR-HMM
+        ## 7 · Observed states vs. hidden states
 
-        We just built a **fully-observed** first-order Markov chain: *we* assigned the labels
-        (rest/locomote/huddle) with hand-picked thresholds, then measured transitions between them.
-        A true **HMM / AR-HMM** flips the arrow — it treats the states as **hidden** and *infers* them
-        from the emissions (the raw kinematics), discovering both the number of states and their
-        boundaries from data. That is exactly what MoSeq's AR-HMM does to carve behavior into
-        "syllables."
+        We built a **fully-observed** first-order Markov chain: *we* assigned the labels
+        (rest / locomote / huddle) using thresholds we chose, then counted transitions between them.
+        There was no inference — only counting.
 
-        **Questions to sit with:**
+        A more powerful family of models, the **hidden Markov model (HMM)** and its autoregressive
+        cousin (**AR-HMM**), turns the problem around. Instead of being told the states, the model
+        treats them as **hidden** and *infers* them directly from the raw kinematics — discovering
+        both how many states there are and where their boundaries fall. This is the idea behind
+        behavior-segmentation tools that carve movement into recurring "syllables," and it is also how
+        neuroscientists model latent states they cannot observe directly.
 
-        1. A first-order chain assumes the next state depends only on the *current* one. What memory
-           does that throw away, and how would you notice if a second-order dependency mattered?
-        2. Why is the shuffle null *mandatory* rather than optional here?
-        3. Our three states came from two thresholds we chose. What would a **hidden**-state model buy
-           us that our observed labels can't — and how could it reveal a state we never named?
-        4. Why can't the 1500 sparse 130-frame approach-events be strung into one valid chain?
+        **Questions to think about:**
+
+        1. A first-order chain assumes the next state depends only on the *current* state. What memory
+           does that throw away, and how might you notice if a two-step dependency mattered?
+        2. Why is the shuffle null necessary here rather than optional?
+        3. Our three states came from two thresholds we picked. What could a **hidden**-state model
+           give us that our hand-chosen labels cannot — and how might it reveal a state we never named?
+        4. Why can the 1500 short approach events not be strung into one valid Markov chain?
         """
     )
-    return
-
-
-# ============================================================ Neuroscience accordion
-@app.cell(hide_code=True)
-def _(mo):
-    mo.accordion({
-        "🧠 Deeper: the paper & where the analogy stops": mo.md(
-            r"""
-            **Shared mathematics.** A transition matrix over behavioral states is the *observed* cousin
-            of the **hidden-Markov / autoregressive-HMM** models neuroscientists fit to latent brain
-            states — same Markov machinery (transition matrix, stationary distribution, entropy), one
-            layer of inference apart.
-
-            **The direct method ancestor.** *Wiltschko et al. 2015, Neuron* — **MoSeq** fits an AR-HMM
-            to depth-video mouse pose and reads out sub-second behavioral "syllables"; *Markowitz et al.
-            2018, Cell* shows the **dorsolateral striatum** encodes exactly these syllable *transitions*.
-            Latent-state sequence models in neural data: *Jones et al. 2007, PNAS* (cortical state
-            sequences during taste); *Mazzucato et al. 2015, J. Neurosci.* (metastable attractor states
-            in cortex).
-
-            **Species / preparation tag.** Freely-moving mice, home-cage social groups (ours); MoSeq is
-            single-mouse open-field depth video; the striatal read-out is mouse electrophysiology.
-
-            **Where the analogy stops.** Ours is a **fully-observed** chain — *we* labeled the states,
-            so there is no inference, only counting. The brain's states are **latent**: they must be
-            *inferred* from emissions, and **that inference is the HMM**. Matching the transition-matrix
-            math does not mean our coarse kinematic states are the same objects as MoSeq syllables or as
-            cortical attractor states — only that the same grammar tool reads all three.
-            """
-        )
-    })
     return
 
 
@@ -710,29 +758,30 @@ def _(mo):
 def _(mo):
     mo.md(
         r"""
-        ## 8 · What we threw away / how it breaks
+        ## 8 · What we simplified, and how it can break
 
-        **Discarded information.** The first-order assumption erases all memory beyond one step (a
-        grooming→locomote→rest *bout* is invisible). Three coarse states collapse the whole 19-feature
-        ethogram into rest/locomote/huddle — every fine behavior (aggression, mounting, sniffing) is
-        crushed into one of three bins. Time-of-day binning throws away the exact sequence within a bin.
+        **What we discarded.** The first-order assumption erases all memory beyond one step, so a
+        multi-step *bout* (grooming → locomote → rest) is invisible. Three coarse states collapse a
+        rich behavioral repertoire into rest / locomote / huddle, so fine behaviors (aggression,
+        mounting, sniffing) all fall into one of three bins. Time-of-day binning discards the exact
+        order of events within a bin.
 
-        **Concrete failure modes on *this* data.**
+        **Concrete limitations on this data.**
 
-        1. **n ≈ 3, single condition.** Our continuous span is *one dep-phase day* per cage, so we
-           **cannot** test whether deprivation reorganizes the grammar or flattens the clock — the
-           headline lab-meeting question stays *open* until pre/post continuous spans exist. Three cages
-           can't ground a circadian population claim.
-        2. **Diagonal dominance.** Self-transitions (~0.83) swamp the matrix; the interesting
-           off-diagonal *switches* are rare, so entropy is driven mostly by dwell length, not by
-           genuine sequencing richness.
-        3. **Threshold sensitivity.** The 40th/25th-percentile cutoffs *define* the states; nudge them
-           and the whole grammar shifts. Our "huddle" is a distance heuristic, not verified social
-           contact.
+        1. **n ≈ 3, single condition.** The continuous recording is *one dep-phase day* per cage, so
+           we **cannot** test whether deprivation reorganizes the grammar or flattens the clock. That
+           question stays open until continuous pre/post recordings exist. Three cages also cannot
+           ground a population circadian claim.
+        2. **Diagonal dominance.** Self-transitions (~0.83) make up most of the matrix, so the
+           interesting off-diagonal *switches* are rare, and entropy is driven mostly by how long each
+           dwell lasts rather than by rich sequencing.
+        3. **Threshold sensitivity.** The 40th / 25th-percentile cutoffs *define* the states; move them
+           and the whole grammar shifts. "Huddle" is a distance heuristic, not verified social contact.
 
-        **How would you analyze this?** *If you suspected a hidden bout structure the three observed
-        labels miss — a recurring "prowl → lunge → retreat" motif — how would you detect it without
-        pre-labeling it?* (Hint: this is precisely the job of an AR-HMM.)
+        **A question to carry forward.** If you suspected a repeating bout structure that the three
+        observed labels miss — say a "approach → contact → retreat" motif — how would you detect it
+        *without* labeling it by hand first? That is exactly the job a hidden-state model (AR-HMM) is
+        built for.
         """
     )
     return
@@ -744,36 +793,36 @@ def _(H_obs, grammar, mo, np, self_obs):
     _nH = float(np.mean([grammar[c]["null_H"].mean() for c in ["15", "10", "13"]]))
     mo.md(
         f"""
-        ### 📋 Readout Board — *leaving* NB07
+        ### Readout board — leaving NB07
 
         | Gauge | Your fresh number | Benchmark | Verdict |
         |---|---|---|---|
-        | **A · size of representation** | **3 states**, 1 label per moment — plus the **time axis** | `1` syllable (NB05) | Representation didn't shrink; we added **dynamics** on top of it. |
-        | **B · held-out readiness** | grammar entropy **{H_obs:.2f} bits** vs shuffle **{_nH:.2f}**; stickiness **{self_obs:.2f}** vs **0.33** | memory beats null | ✅ **dynamics validated** — the baseline grammar is real and shuffle-robust across 3 cages. |
+        | **A · size of representation** | **3 states**, 1 label per moment — plus the **time axis** | `1` state label (NB05) | The representation did not shrink; we added **dynamics** on top of it. |
+        | **B · held-out readiness** | grammar entropy **{H_obs:.2f} bits** vs shuffle **{_nH:.2f}**; stickiness **{self_obs:.2f}** vs **0.33** | memory beats the null | Dynamics validated — the baseline grammar is real and shuffle-robust across 3 cages. |
 
-        The behavior team can now say what the *un-manipulated* grammar and rhythm look like — the
-        prerequisite for ever claiming opto changed them.
+        We can now describe what the *un-manipulated* grammar and daily rhythm look like — the
+        prerequisite for ever claiming a manipulation changed them.
         """
     )
     return
 
 
-# ============================================================ What we ship next
+# ============================================================ What we do next
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ## → What we ship next
+        ## What we do next
 
-        We have the full representation now: a body-frame feature vector (NB02), a low-D manifold
-        (NB04), a map carved into syllables (NB05), an honest account of what those syllables encode
-        (NB06), and — today — the **grammar and clock** of how behavior moves through them, validated
-        against a shuffle null.
+        We now have a full representation of behavior: a body-frame feature vector (NB02), a low-D
+        manifold (NB04), a map carved into syllables (NB05), an account of what those syllables encode
+        (NB06), and — today — the **grammar and daily clock** of how behavior moves through them,
+        validated against a shuffle null.
 
-        Everything so far *describes* behavior. The rig needs a **decision**. **Next → `08_decoder_graduates.py`:**
-        the decoder gets a teacher (hand-labeled ground truth and its noise ceiling), gets trained —
-        and then, for the first time, **Camera 16 unlocks** and we find out whether a readout built on
-        seven cages survives a cage it has never seen. **Notebooks until unlock: 1.**
+        Everything so far *describes* behavior. Next we ask for a **decision**. In
+        **`08_decoder_graduates.py`** the decoder gets a labeled training set (hand-scored ground truth
+        and its noise ceiling), is trained, and is then tested on **Camera 16** — a cage it has never
+        seen — to find out whether a readout built on seven cages generalizes to an eighth.
         """
     )
     return

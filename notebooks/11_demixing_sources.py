@@ -56,28 +56,54 @@ def _():
 def _(mo):
     mo.md(
         r"""
-        # NB11 · Demixing the Sources
+        # NB11 · Demixing the sources
 
-        > **WEEK 2 — THE NEURAL TWIN**
-        >
-        > In Week 1 you learned to *read behavior* from pose. In **NB04** you took a wide,
-        > redundant feature matrix and ran **PCA / source separation**: you turned an
-        > entangled mixture into a small set of independent components, each one a clean
-        > "direction" of variation you could name. That was the computational move —
-        > **decompose a mixture into its sources.**
-        >
-        > This notebook is that move, run on the **brain instead of the body.** A one-photon
-        > miniscope sees a 2-D image where the light from many neurons **overlaps in the same
-        > pixels** — a spatial mixture. **CNMF** (constrained non-negative matrix
-        > factorization) demixes it: it factors the movie into a set of **spatial footprints
-        > `A`** (where each source lives) and **temporal traces `C`** (when each source
-        > fires). Same idea as PCA — *separate a mixed signal into components* — but the
-        > components here are literally single cells, and the mixing is optical, not
-        > statistical.
-        >
-        > **The rig for today:** one striatal recording, `221007_4-0_D2` — **202 demixed
-        > neurons**, ~16,800 frames at 30 fps. We'll look at the footprints, the traces, and
-        > then find a moment where the population fires as a **sequence.**
+        **Week 2 · working with neural recordings**
+
+        ### Why this notebook
+
+        In Week 1 you worked with *behavior*: the positions of a mouse's body keypoints
+        over time. In Week 2 you work with the *brain*, using calcium imaging recordings
+        from the same kind of animals. The goal of this notebook is to take one raw
+        imaging movie and turn it into a clean set of individual neurons that we can
+        study one at a time.
+
+        This is the neural version of a step you already did on behavior. In **NB04** you
+        took a wide, redundant feature matrix and reduced it with **PCA**: you replaced
+        many correlated measurements with a few independent components. The operation was
+        *decompose a mixture into its underlying sources*. This notebook runs that same
+        operation, but on the brain instead of the body.
+
+        ### Definitions (read these before the method)
+
+        - **Source separation (demixing).** Splitting a signal that is a *mixture* of
+          several things into the separate things that make it up. In a calcium movie,
+          the light from many neurons lands on overlapping pixels, so any single pixel is
+          a mixture. Demixing recovers the individual neurons behind those pixels.
+        - **Spatial footprint (`A`).** For one neuron, the set of pixels it occupies and
+          how strongly it contributes to each — an image showing *where* that neuron is
+          in the field of view.
+        - **Calcium trace (`C`).** For one neuron, its brightness over time — a
+          time series showing *when* that neuron is active. Brightness rises when the cell
+          fires (calcium enters) and decays slowly afterward.
+        - **Correlation image (`Cn`).** A summary image of the whole movie where each
+          pixel is colored by how much its brightness rises and falls *together with its
+          neighbors*. Cell bodies show up as bright blobs; isolated noisy pixels stay dark.
+
+        ### Method
+
+        The algorithm that performs this demixing is **CNMF** (constrained non-negative
+        matrix factorization). It factors the movie into the spatial footprints `A`
+        (the *where*) and the temporal traces `C` (the *when*). This is the honest neural
+        analog of dimensionality reduction: PCA and CNMF both write a data matrix as a
+        product of a spatial factor and a temporal factor. The difference is that a CNMF
+        component is constrained to be non-negative and spatially compact, so each one
+        corresponds to a real cell rather than an abstract statistical axis.
+
+        The recording we use is one striatal session, `221007_4-0_D2`: **202 demixed
+        neurons** across about **16,800 frames at 30 fps**. We will look at the
+        footprints, the traces, and then check whether the population fires as an ordered
+        sequence.
         """
     )
     return
@@ -109,17 +135,22 @@ def _(Fs, mo, n_frames, n_neurons):
     mo.md(
         f"""
         ---
-        ## 1. The correlation image — the "photo" the demixing starts from
+        ## 1. The correlation image — the starting point for demixing
 
-        Before any demixing, a standard first look is the **local correlation image `Cn`**:
-        each pixel is colored by how strongly its brightness fluctuates **together with its
-        neighbors** over time. A lone bright pixel is noise; a *blob* of pixels that rise and
-        fall in lockstep is a candidate cell body. `Cn` is where a human (or CNMF's
-        initialization) first sees neurons emerge from the raw movie.
+        **Why.** Before any demixing runs, we need to see roughly where the cells are. The
+        correlation image is the standard first look at a calcium movie, and it is also
+        what CNMF uses to place its initial guesses.
 
-        This recording has **{n_neurons} neurons** across **{n_frames:,} frames** at
-        **{Fs:.0f} fps** ({n_frames / Fs / 60:.1f} min). The bright rings and disks below are
-        the sources CNMF will pull apart.
+        **Definition.** The **local correlation image `Cn`** colors each pixel by how
+        strongly its brightness fluctuates *together with its immediate neighbors* over
+        the whole recording. A single bright pixel on its own is usually noise. A *blob*
+        of pixels that brighten and dim in lockstep is a candidate cell body, because the
+        pixels covering one neuron rise and fall together.
+
+        **Method.** The figure below plots `Cn` for this recording of **{n_neurons}
+        neurons** across **{n_frames:,} frames** at **{Fs:.0f} fps**
+        ({n_frames / Fs / 60:.1f} min). The bright rings and disks are the sources CNMF
+        will separate into individual footprints and traces.
         """
     )
     return
@@ -139,16 +170,22 @@ def _(mo):
         ---
         ## 2. One source at a time — the footprint viewer
 
-        CNMF's spatial output `A` is a matrix with **one row per neuron** and one column per
-        pixel (`202 × 360000`). Reshape a single row back to the `600 × 600` image and you get
-        that neuron's **spatial footprint** — its own private slice of the field of view, the
-        set of pixels the demixing assigned to *that* cell. This is the imaging analog of a
-        **PCA component's loading vector**: a spatial pattern that says "this source lives
-        here."
+        **Why.** After demixing, each neuron is described by two things: where it sits and
+        when it fires. Looking at them side by side is the clearest way to understand what
+        a single demixed "source" actually is.
 
-        Drag the slider to walk through all 202 sources. On the **left** is the footprint
-        (where the neuron is); on the **right** is its **calcium trace `C[:, k]`** (when it
-        fires). Together they are one demixed source: a *where* and a *when*.
+        **Definitions.** CNMF's spatial output `A` is a matrix with **one row per neuron**
+        and **one column per pixel** (`202 × 360000`). Take one row and reshape it back to
+        the `600 × 600` image and you recover that neuron's **spatial footprint**: the
+        pixels the demixing assigned to that one cell. This is the imaging analog of a PCA
+        component's loading vector — a spatial pattern that says "this source lives here."
+        Its matching **calcium trace** `C[:, k]` is the same source's brightness over time.
+
+        **Method.** The slider selects a neuron index `k` (0 to 201). The left panel calls
+        `nu.footprint(A, k, img_shape)`, which pulls row `k` out of `A` and reshapes it to
+        the image (input: the matrix and an index; output: a `600 × 600` footprint image).
+        The right panel plots the column `C[:, k]`, that neuron's trace. Drag the slider to
+        step through all 202 sources; each one is a *where* paired with a *when*.
         """
     )
     return
@@ -169,7 +206,7 @@ def _(A, C, img_shape, mo, neuron_ind, nu):
                            colorscale="Viridis", colorbar_title="weight", height=420)
     _fig_tr = nu.trace_fig(None, C[:, _k], title=f"Calcium trace C[:, {_k}] — when it fires",
                            xlabel="Time (frames)", ylabel="calcium (a.u.)", height=420)
-    _fig_tr.update_traces(line=dict(color="#2ca02c", width=1))
+    _fig_tr.update_traces(line=dict(color="#444444", width=1))
     mo.vstack([neuron_ind, mo.hstack([_fig_fp, _fig_tr], widths=[1, 1])])
     return
 
@@ -181,12 +218,17 @@ def _(mo):
         ---
         ## 3. All sources at once — the footprint montage
 
-        Peak-normalize every footprint (so a dim cell and a bright cell count equally) and take
-        the **maximum across all 202 sources** at each pixel. The result is a single image
-        showing **every demixed neuron's territory** laid over the field of view — the full cast
-        of cells CNMF found, and how they tile the tissue. Compare it back to `Cn` above: the
-        bright blobs in the correlation image should reappear here as cleanly separated
-        footprints.
+        **Why.** Viewing one footprint at a time shows what a source is, but not how the
+        whole population tiles the tissue. A single combined image lets us check that the
+        202 sources are spread across the field of view and separated from one another.
+
+        **Method.** Peak-normalize every footprint (divide each by its own maximum, so a
+        dim cell and a bright cell count equally), then take the **maximum across all 202
+        sources** at each pixel. The result shows every neuron's territory laid over the
+        field of view. Compare it back to `Cn` in Section 1: the bright blobs in the
+        correlation image should reappear here as cleanly separated footprints. The helper
+        `nu.footprint_montage(A, img_shape)` does the normalization and max-projection
+        (input: the footprint matrix and image shape; output: one summary image).
         """
     )
     return
@@ -207,14 +249,19 @@ def _(mo):
         ---
         ## 4. The population raster — every source, all the time
 
-        Stack all 202 traces into a matrix — one **row per neuron**, one column per frame — and
-        z-score each row so a small quiet cell is on the same footing as a loud one. This is the
-        **population raster**: the entire demixed recording in one image. Bright vertical smears
-        are moments when many neurons fire together; horizontal streaks are individual cells that
-        stay active.
+        **Why.** We now have 202 traces. To study the population as a whole, we need to see
+        all of them together and spot moments when many neurons are active at once.
 
-        The **contrast** slider sets the color ceiling (`zmax`). Turn it down to bring out weak
-        transients; turn it up to keep only the biggest calcium events.
+        **Definition.** A **raster** is an image of the whole population's activity: **one
+        row per neuron, one column per frame**, with brightness showing how active each
+        neuron is at each moment. Bright vertical smears are frames when many neurons fire
+        together; horizontal streaks are individual cells that stay active for a while.
+
+        **Method.** Stack all 202 traces into a matrix and **z-score each row** (subtract
+        the neuron's mean, divide by its standard deviation) so a small quiet cell is on
+        the same footing as a loud one — this is the matrix `C_z` built at the top. The
+        **contrast** slider sets the color ceiling (`zmax`): turn it down to bring out weak
+        transients, turn it up to keep only the largest calcium events.
         """
     )
     return
@@ -248,13 +295,17 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 5. Stacked traces — reading sources like a physiologist
+        ## 5. Stacked traces — reading sources one line at a time
 
-        A raster hides the *shape* of each transient. Line them up instead: take the first `N`
-        sources, min-max normalize each, and **offset every trace vertically** so they don't
-        overlap — the classic multi-unit stack a physiologist reads off an oscilloscope. Each
-        line is one demixed neuron; the sharp asymmetric rises are calcium transients (fast up,
-        slow decay).
+        **Why.** A raster shows *when* activity happens but hides the *shape* of each
+        event. Plotting the traces as separate stacked lines lets us see the form of
+        individual calcium transients.
+
+        **Method.** Take the first `N` sources, min-max normalize each one to the range
+        `[0, 1]`, and **offset every trace vertically** so they do not overlap. Each line
+        is one demixed neuron. The sharp asymmetric rises are calcium transients: a fast
+        rise when the cell fires, followed by a slow decay. The slider sets how many
+        sources to stack.
         """
     )
     return
@@ -295,16 +346,24 @@ def _(mo):
         ---
         ## 6. The neural sequence — sorting sources by *when* they fire
 
-        Here is the payoff. Pick a window of the recording and, within it, order the neurons by
-        the **time of their first big calcium event** (first frame each z-scored trace crosses a
-        threshold). CNMF gave us the sources in an arbitrary order; re-sorting them by
-        first-activation time reveals whether the population fires as a **sequence** — one cell
-        after another, like a wave.
+        **Why.** CNMF returns the sources in an arbitrary order, so the raw raster looks
+        like scattered speckle even if the population has real temporal structure. If we
+        reorder the neurons by *when* they first become active, we can test whether the
+        population fires as a **sequence** — one cell after another, like a wave.
 
-        On the **left** is the window in the raw source order (a speckle). On the **right** is the
-        same window after `nu.sequence_sort` — if there's a sequence, the activity collapses onto
-        a **diagonal**: early-firing neurons at the bottom, late-firing at the top. The default
-        window is centered on the 2025 script's arena-entry moment, where the striatum lights up.
+        **Definition.** A **sequence** here means the neurons activate in a consistent
+        order in time. When a sequence is present and the rows are sorted by activation
+        time, the raster's activity collapses onto a **diagonal**: early-firing neurons at
+        the bottom, late-firing at the top.
+
+        **Method.** Pick a window of the recording. Within it, order the neurons by the
+        **time of their first large calcium event** (the first frame each z-scored trace
+        crosses a threshold), using `nu.sequence_sort` (input: a raster window and a
+        threshold; output: a permutation that reorders the rows). The **left** panel shows
+        the window in the raw CNMF order; the **right** panel shows the same window after
+        sorting. The default window is centered on the arena-entry moment from the 2025
+        analysis, where the striatum becomes active. The sliders let you move the window,
+        change its length, and set the activation threshold.
         """
     )
     return
@@ -361,34 +420,34 @@ def _(C_z, go, mo, n_frames, np, nu, seq_thresh, win_len, win_start):
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "Reference — CNMF, and where the analogy stops": mo.md(
+        "Reference — CNMF, and the limits of the analogy": mo.md(
             r"""
             **The method.** Pnevmatikakis et al. 2016, *Neuron* 89(2):285–299,
             "Simultaneous Denoising, Deconvolution, and Demixing of Calcium Imaging Data"
             (**CNMF**). The one-photon variant used here is **CNMF-E**
             (Zhou et al. 2018, *eLife* 7:e28728 — the striatal miniscope dataset this course
             also draws NB10 from). CNMF factors the movie `Y ≈ A · C + b` into non-negative
-            **spatial footprints `A`** and **temporal traces `C`** (plus a background term `b`) —
-            a constrained matrix factorization, the same family as the PCA/ICA decomposition you
-            ran on behavior in NB04.
+            **spatial footprints `A`** and **temporal traces `C`** (plus a background term `b`).
+            This is a constrained matrix factorization, the same family of methods as the
+            PCA decomposition you ran on behavior in NB04.
 
             **The shared mathematics.** Both PCA and CNMF write a data matrix as a **low-rank
-            product of a spatial factor and a temporal factor**. PCA picks orthogonal directions
-            of maximum variance; CNMF picks **non-negative, spatially-localized** factors so each
-            component is a physically plausible cell. Non-negativity + a sparse deconvolution
-            model is what turns "a component" into "a neuron."
+            product of a spatial factor and a temporal factor**. PCA picks orthogonal
+            directions of maximum variance; CNMF picks **non-negative, spatially localized**
+            factors so each component is a physically plausible cell. Non-negativity plus a
+            sparse deconvolution model is what turns "a component" into "a neuron."
 
-            **Honest note on `S`.** The file also carries `S`, CNMF's **deconvolved spike
-            estimate**. Deconvolution is calibrated for two-photon data; for **one-photon**
-            miniscope recordings like this one, `S` is *not* validated — the spike times are a
-            model output, not ground truth. We show `C` (the calcium) and treat `S` with
-            suspicion. Do not report `S` as spike counts.
+            **Note on `S`.** The file also carries `S`, CNMF's **deconvolved spike estimate**.
+            Deconvolution is calibrated for two-photon data; for **one-photon** miniscope
+            recordings like this one, `S` is not validated — the spike times are a model
+            output, not ground truth. We show `C` (the calcium) and do not report `S` as
+            spike counts.
 
-            **Where the analogy stops.** A PCA component is a *statistical* axis — abstract, can
-            be negative, need not correspond to anything real. A CNMF footprint is a *physical
-            claim*: "a cell is here." That is a stronger, falsifiable statement, and it can be
-            **wrong** — two adjacent cells can be merged into one source, or one cell split into
-            two, and no amount of variance-explained will tell you. Demixing is only as good as
+            **Limits of the analogy.** A PCA component is a *statistical* axis: abstract, can
+            be negative, and need not correspond to anything real. A CNMF footprint is a
+            *physical claim*: "a cell is here." That is a stronger, testable statement, and it
+            can be wrong — two adjacent cells can be merged into one source, or one cell split
+            into two, and the variance explained will not tell you. Demixing is only as good as
             the footprints, and footprints are inferred, not observed.
             """
         )
@@ -401,26 +460,42 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 7. Exercise — does sorting actually make a sequence?
+        ## 7. Exercise — does sorting actually reveal a sequence?
 
-        > **Hypothesis.** Around arena entry, the striatal population fires as a **temporal
-        > sequence** — so ordering neurons by their first activation time turns a formless raster
-        > into a **diagonal** one. Sorting should raise a "sequenceness" score *far* above the
-        > unsorted baseline.
+        **The question.** Around arena entry, does the striatal population fire as a
+        temporal sequence? If it does, ordering the neurons by their first activation time
+        should turn a formless raster into a diagonal one, and a "sequenceness" score
+        should rise well above the unsorted baseline.
 
-        **Toolbox.**
+        **What you have.**
 
         - `C_z` — the `(202, n_frames)` z-scored population raster (already built above).
-        - `ENTRY` (= 8985), `WIN_LEN` (= 5400) — the arena-entry window on the imaging clock.
-        - `nu.sequence_sort(raster, thresh=5.0)` — returns a permutation ordering neurons by
-          first supra-threshold crossing.
-        - `scipy.stats.spearmanr`, `np.argmax`.
+        - `ENTRY` (= 8985) and `WIN_LEN` (= 5400) — the arena-entry window on the imaging
+          clock.
+        - `nu.sequence_sort(raster, thresh=5.0)` — returns a permutation ordering neurons
+          by their first supra-threshold crossing.
+        - `scipy.stats.spearmanr` and `np.argmax`.
 
-        **Your job.** Build the fixed window `win = C_z[:, ENTRY:ENTRY+WIN_LEN]`. Define a
-        **sequenceness** score = the *absolute Spearman correlation* between a neuron's **row
-        position** and its **first-crossing time** (`np.argmax(win > 5.0, axis=1)`). Compute it
-        for the **unsorted** window and for the window **after `sequence_sort`**. Fill in
-        `seq_unsorted` and `seq_sorted`, then run the self-check.
+        **Definition of the score.** *Sequenceness* is the absolute Spearman correlation
+        between a neuron's **row position** and its **first-crossing frame**
+        (`np.argmax(win > thr, axis=1)`). A value near 0 means no temporal order; a value
+        near 1 means a clean diagonal.
+
+        **Your job.** The cell below already builds the window `_win`, the threshold
+        `_thr`, the `_sequenceness` helper, and the sort `_order`. You only fill in the
+        **two marked lines** — the score before and after sorting:
+
+        ```python
+        # score the window in the original CNMF order
+        seq_unsorted = _sequenceness(____)          # pass the unsorted window
+        # score the same window after sorting the rows by first activation
+        seq_sorted   = _sequenceness(____)           # pass win[order]
+        ```
+
+        Replace each `____` and run the cell. **What you should see:** the self-check below
+        turns green when the sorted score lands in the band `[0.65, 0.95]` and clears the
+        unsorted baseline by a wide margin. In numbers, expect `seq_unsorted` near `0.05`
+        (no order in the raw CNMF order) and `seq_sorted` near `0.79` (a clear diagonal).
         """
     )
     return
@@ -432,16 +507,19 @@ def _(C_z, ENTRY, WIN_LEN, np, nu):
     from scipy.stats import spearmanr as _spearmanr
 
     _thr = 5.0
-    _win = C_z[:, ENTRY:ENTRY + WIN_LEN]
+    _win = C_z[:, ENTRY:ENTRY + WIN_LEN]              # fixed arena-entry window
 
     def _sequenceness(_raster):
+        # first activation frame per neuron, then |Spearman(row position, first frame)|
         _first = np.argmax(_raster > _thr, axis=1)
         _r, _ = _spearmanr(np.arange(_raster.shape[0]), _first)
         return 0.0 if np.isnan(_r) else abs(float(_r))
 
-    _order = nu.sequence_sort(_win, thresh=_thr)
+    _order = nu.sequence_sort(_win, thresh=_thr)      # permutation: rows ordered by first crossing
 
+    # TODO (line 1): score the window in the ORIGINAL order. Replace ____ with _win
     seq_unsorted = _sequenceness(_win)
+    # TODO (line 2): score the window AFTER sorting the rows. Replace ____ with _win[_order]
     seq_sorted = _sequenceness(_win[_order])
     # ---------------------------------------------------------------------------------------------
     return seq_sorted, seq_unsorted
@@ -467,13 +545,13 @@ def _(mo):
             seq_sorted   = sequenceness(win[order])           # ~0.79  (a clean diagonal)
             ```
 
-            **What you should find:** the unsorted window has **near-zero** sequenceness
-            (~0.05 — CNMF hands you sources in an arbitrary order), while after `sequence_sort` it
-            jumps to **~0.79**. The jump is the whole point: the sort didn't *create* structure, it
-            **revealed** a temporal sequence that was already latent in the population. (The sorted
-            score is ~0.79 rather than a perfect 1.0 because ~144 of the 202 neurons never cross the
-            threshold in this window; among the ~58 that do fire, the ordering is essentially
-            perfect.)
+            **What you should find:** the unsorted window has near-zero sequenceness
+            (~0.05 — CNMF returns the sources in an arbitrary order), while after
+            `sequence_sort` it rises to about **0.79**. The jump is the point: sorting did
+            not *create* structure, it **revealed** a temporal sequence that was already
+            present in the population. The sorted score is ~0.79 rather than a perfect 1.0
+            because about 144 of the 202 neurons never cross the threshold in this window;
+            among the ~58 that do fire, the ordering is essentially perfect.
             """
         )
     })
@@ -490,14 +568,14 @@ def _(mo, seq_sorted, seq_unsorted):
     _ok = _in_band and _gain
     _c = "#e8f5e9" if _ok else "#ffebee"
     _b = "#2e7d32" if _ok else "#c62828"
-    _m1 = (f"✅ sorted sequenceness = {seq_sorted:.3f} — in the expected band [0.65, 0.95]"
+    _m1 = (f"sorted sequenceness = {seq_sorted:.3f} — in the expected band [0.65, 0.95]"
            if _in_band else
-           f"❌ sorted sequenceness = {seq_sorted:.3f} — outside [0.65, 0.95]; check window/threshold")
-    _m2 = (f"✅ sorting beats the unsorted baseline ({seq_unsorted:.3f}) by "
+           f"sorted sequenceness = {seq_sorted:.3f} — outside [0.65, 0.95]; check window/threshold")
+    _m2 = (f"sorting beats the unsorted baseline ({seq_unsorted:.3f}) by "
            f"{seq_sorted - seq_unsorted:.3f} — a real sequence was revealed"
            if _gain else
-           f"❌ gain over baseline = {seq_sorted - seq_unsorted:.3f} is too small — did you sort the raster?")
-    _head = "PASS — the sort reveals a neural sequence" if _ok else "Not yet — fix the flagged part"
+           f"gain over baseline = {seq_sorted - seq_unsorted:.3f} is too small — did you sort the raster?")
+    _head = "PASS — the sort reveals a neural sequence" if _ok else "Not yet — fix the flagged line"
     mo.md(
         f"""
         <div style="background:{_c};border-left:6px solid {_b};padding:12px 16px;border-radius:6px">
@@ -517,20 +595,21 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## The twin, closed
+        ## Summary
 
-        You ran **NB04's move on the brain.** PCA took a redundant behavior matrix and split it
-        into a few nameable components; **CNMF took an optical mixture — overlapping light in the
-        same pixels — and split it into 202 nameable sources**, each with a footprint (`A`, the
-        *where*) and a trace (`C`, the *when*). Decompose a mixture into its sources: the same
-        operation, once on the body, once on the tissue. And then, by sorting those sources by
-        *when* they fire, a shapeless raster resolved into a **sequence** — structure that was
-        there all along, waiting for the right ordering.
+        You ran NB04's operation on the brain. PCA took a redundant behavior matrix and
+        reduced it to a few components. CNMF took an optical mixture — overlapping light in
+        the same pixels — and separated it into 202 sources, each with a footprint (`A`,
+        the *where*) and a trace (`C`, the *when*). The operation is the same in both
+        cases: decompose a mixture into its sources, once on the body and once on the
+        tissue. Sorting those sources by *when* they fire then turned a shapeless raster
+        into a diagonal one, showing a temporal sequence that was already present in the
+        data.
 
-        **Next (NB12): what do these sources *code*?** We'll hand a demixed population a **behavior
-        variable** — the animal's position in space — and ask which neurons are **tuned** to it:
-        place cells and grid cells, the tuning-curve twin of the behavioral detectors you built in
-        Week 1.
+        **Next (NB12): what do these sources code for?** We will give a demixed population
+        a behavior variable — the animal's position in space — and ask which neurons are
+        **tuned** to it. This is the tuning-curve analog of the behavioral detectors you
+        built in Week 1.
         """
     )
     return

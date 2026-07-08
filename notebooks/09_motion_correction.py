@@ -56,38 +56,47 @@ def _():
 def _(mo):
     mo.md(
         r"""
-        # NB09 · Motion Correction — the neural twin of *registration*
+        # NB09 · Motion Correction
 
-        > **FROM: Circuit Team → TO: You (now on the imaging rig)**
-        >
-        > Welcome to Week 2. You spent Week 1 turning pixels into trustworthy pose. Now you point a
-        > microscope at the brain — and hit the *same wall you hit on day one*. In **NB01** the very
-        > first thing you had to do before reading a single behavior was **stabilize the tracks**:
-        > fix identity, undo drift, make sure "mouse 2 at frame 500" is the same animal as "mouse 2 at
-        > frame 501." Miniscope imaging has an identical disease. The animal moves, the tissue slides
-        > under the lens, and **frame 500's pixel (80, 40) is no longer the same neuron as frame 501's
-        > pixel (80, 40).** Before you can read *any* calcium signal, you must register the movie.
-        >
-        > **The deliverable:** a felt understanding that a "neuron's trace" is a *lie* until the frames
-        > are aligned — and a number, the **motion index**, that says how well.
-        > **It unblocks:** NB10 (pulling traces out of pixels) and everything after it.
-        > **Today's lab-meeting question:** *does registration actually reduce frame-to-frame motion,
-        > and does the fancier piecewise-rigid method beat plain rigid?*
+        Welcome to Week 2. Your longer-term goal as a behavioral neuroscientist is to study how the
+        medial prefrontal cortex (mPFC) contributes to social behavior. In Week 1 you built an
+        objective readout of *what a mouse does*, from tracked body points. In Week 2 you add the
+        second half of that question: *what the brain is doing while the mouse does it.* To get there,
+        you first have to be able to read the brain's signal cleanly. That is what this notebook is
+        about.
 
-        ## The twin, stated plainly
+        ## Why motion correction is needed
 
-        | Week 1 — behavior (NB01) | Week 2 — brain (NB09) |
-        |---|---|
-        | pose tracks jitter / swap identity | imaging FOV drifts under the lens |
-        | a "track" is meaningless until stabilized | a "neuron trace" is meaningless until registered |
-        | fix identity → align across time | rigid / piecewise-rigid registration → align across time |
+        The recordings in Week 2 come from a **miniature microscope** (a "miniscope"): a small camera
+        mounted on the animal's head that films a patch of brain tissue while the mouse moves freely. A
+        protein reporter makes a neuron glow brighter when it becomes active, so the recording is a
+        movie in which bright spots switch on and off as neurons fire. To measure one neuron's activity
+        over time, you look at the pixels where that neuron sits and track how their brightness changes
+        frame by frame.
 
-        **The shared computational move:** *before you can read a signal, you must align it across
-        time.* Imaging drift is the pose-tracking drift problem wearing a lab coat. Registration is the
-        imaging analog of stabilizing tracks.
+        This only works if a given pixel keeps pointing at the *same* piece of tissue. It does not. The
+        animal walks, grooms, and turns, and the brain shifts slightly under the lens. The camera's view
+        (the **field of view**, or FOV) drifts. When it drifts, pixel `(80, 40)` in frame 500 and pixel
+        `(80, 40)` in frame 501 are no longer the same neuron. Read the brightness at a fixed pixel and
+        you get a mixture of "the neuron fired" and "the neuron slid away," with no way to tell them
+        apart. A neuron's trace is not meaningful until the frames are aligned.
 
-        Below you'll look at one movie, **rendered three ways at once** — `raw | rigid | pw-rigid` —
-        the way a motion-correction pipeline hands you its work so you can judge it by eye.
+        **Motion correction** (also called **registration**) fixes this. It estimates how much each
+        frame has moved relative to a reference image, then shifts the frame back so that every pixel
+        lines up with the same tissue across the whole recording.
+
+        This is the same problem you already solved for behavior. In Week 1, a pose track was
+        meaningless until you had stabilized it: fixed the identity of each mouse and made sure "mouse 2
+        at frame 500" was the same animal as "mouse 2 at frame 501." Aligning a signal across time
+        before you read it is a general step, and imaging needs it just as much as pose tracking does.
+
+        ## What this notebook does
+
+        You will look at one real miniscope movie that has been processed **three ways** and laid out
+        side by side, `raw | rigid | pw-rigid`, so you can compare an uncorrected recording against two
+        registration methods. You will read the motion two ways (by eye, and with a single number), and
+        the closing exercise asks the concrete question: *does registration actually reduce
+        frame-to-frame motion, and does the more flexible piecewise-rigid method beat plain rigid?*
         """
     )
     return
@@ -100,18 +109,26 @@ def _(mo):
         ---
         ## 1. One movie, three registrations, side by side
 
-        The file `mmc3.mp4` is a demo output where three versions of the *same* miniscope movie are
-        laid out left-to-right in one frame:
+        The file `mmc3.mp4` is a demonstration movie in which three versions of the *same* miniscope
+        recording are placed left-to-right in a single frame. Comparing them side by side is the
+        clearest way to see what each method does.
 
-        - **left third — raw:** straight off the sensor, no correction.
-        - **middle third — rigid:** the whole frame is shifted (one translation per frame) to best
-          match a template. Corrects global drift; can't fix local warping.
-        - **right third — pw-rigid:** *piecewise* rigid — the frame is split into patches, each shifted
-          on its own, then blended. Corrects non-uniform motion (tissue that stretches, not just slides).
+        **Definitions of the three panels:**
 
-        We split the width into thirds and crop the top/bottom so the panels align. Drag the frame
-        slider and stare at a bright cell: in **raw** it wanders; in **rigid** it steadies; in
-        **pw-rigid** it locks. (We subsample the movie so a bare cloud kernel never chokes.)
+        - **left third — raw:** the recording straight off the sensor, with no correction applied.
+        - **middle third — rigid registration:** the whole frame is shifted by one translation (one
+          left/right and up/down offset) per frame, chosen to best match a reference template. This
+          corrects *global* drift, where the entire FOV slides together. It cannot fix motion that
+          differs across the frame.
+        - **right third — piecewise-rigid registration:** the frame is divided into patches, each patch
+          is shifted on its own, and the patch shifts are blended back together smoothly. Because
+          different patches can move by different amounts, this corrects *non-uniform* motion, where one
+          part of the tissue stretches or slides differently from another.
+
+        **What the code does.** We split the movie's width into thirds and crop the top and bottom so
+        the three panels line up. The frame slider picks which time point to show. Drag it and watch a
+        single bright cell: in **raw** it wanders, in **rigid** it steadies, and in **pw-rigid** it holds
+        most still. (The movie is subsampled in time so it loads quickly on a modest machine.)
         """
     )
     return
@@ -165,20 +182,26 @@ def _(VMAX, VMIN, frame_ctrl, mo, pwr, raw, rigid):
 def _(mo):
     mo.md(
         r"""
-        A single frame is a weak lie-detector — motion is a *time* property. So we flatten time into a
-        picture next.
+        A single frame is a weak test of motion, because motion is a property of how the image changes
+        *over time*, not of any one snapshot. Next we summarize the whole time axis in one picture.
 
         ---
-        ## 2. Kymographs — reading motion the way you read a stabilized track
+        ## 2. Kymographs — turning motion into a picture
 
-        A **kymograph** fixes one horizontal line of the image (row `y`) and stacks that line across
-        every frame: **x = position along the row, y = time.** A pixel column that stays put traces a
-        **straight vertical streak**; a column that jitters left-right **wiggles**. It's the imaging
-        twin of laying every frame's pose track on top of each other and asking *"is this line
-        straight?"* — exactly the NB01 sanity check for a stabilized track.
+        **Definition.** A **kymograph** takes one horizontal line of the image (a single row of pixels,
+        at height `y`) and stacks that line across every frame of the movie. The result is a 2-D image
+        where the horizontal axis is **position along the row** and the vertical axis is **time**. Each
+        row of the kymograph is what that one image line looked like at one moment.
 
-        Pick the row `y` and a **time window** to highlight (the red band). Compare the three panels:
-        raw streaks wander, rigid straightens them, pw-rigid straightens them most.
+        **How to read it.** A pixel feature that stays put over time traces a **straight vertical
+        streak** down the kymograph. A feature that jitters left and right traces a **wiggly** streak.
+        So "is the movie well registered?" becomes the simpler visual question "are the streaks
+        straight?" This is the imaging counterpart of overlaying every frame's pose track and asking
+        whether the line holds still, which is a sanity check you used in Week 1.
+
+        **Controls.** Pick the row `y` (which image line to track) and a **time window** to highlight
+        (the red band). Compare the three panels: raw streaks wander, rigid straightens them, and
+        pw-rigid straightens them the most.
         """
     )
     return
@@ -226,22 +249,41 @@ def _(mo, pwr, raw, rigid, row_ctrl, win_ctrl):
 def _(mo):
     mo.md(
         r"""
-        The kymograph turns "is it registered?" into "are the streaks straight?" — but eyeballing
-        doesn't scale, and it can't tell rigid from pw-rigid when both look decent. We need a **scalar**.
+        The kymograph turns "is it registered?" into "are the streaks straight?", but judging streaks by
+        eye does not scale to thousands of movies, and it struggles to separate rigid from pw-rigid when
+        both look reasonable. For that we need a single number.
 
         ---
-        ## 3. The motion index — one number for "how much jitter is left"
+        ## 3. The motion index — one number for how much jitter is left
 
-        `nu.motion_index(frames)` is the mean absolute **frame-to-frame difference**,
-        $\;\text{MI} = \langle\,|f_{t+1} - f_{t}|\,\rangle$. A perfectly still movie has MI near zero
-        (consecutive frames are identical); a jittery one has large MI because every pixel keeps
-        changing. Registration should **push MI down**, and better registration should push it lower:
+        **Definition.** The **motion index** measures how much the picture changes from one frame to the
+        next. The function `nu.motion_index(frames)` computes the mean absolute **frame-to-frame
+        difference**,
+
+        $$\text{MI} = \big\langle\,|f_{t+1} - f_{t}|\,\big\rangle,$$
+
+        the average, over every pixel and every pair of neighboring frames, of how much a pixel's
+        brightness changed. A perfectly still movie has a motion index near zero, because consecutive
+        frames are nearly identical. A jittery movie has a large motion index, because every pixel keeps
+        changing as the image slides around.
+
+        **Purpose, inputs, outputs.**
+
+        - `nu.motion_index(frames)` — *purpose:* score how much frame-to-frame motion a movie has.
+          *Input:* one movie array of shape `(F, H, W)`. *Output:* a single number (the scalar motion
+          index).
+        - `nu.motion_index_trace(frames)` — *purpose:* show that same jitter over time instead of
+          collapsing it to one number. *Input:* a movie `(F, H, W)`. *Output:* a 1-D array of length
+          `F - 1`, one motion value per adjacent frame pair.
+
+        If registration works, it should push the motion index **down**, and the more flexible method
+        should push it lower still:
 
         $$\text{MI}(\text{raw}) \;>\; \text{MI}(\text{rigid}) \;>\; \text{MI}(\text{pw-rigid}).$$
 
-        The per-frame version below (`nu.motion_index_trace`) shows the jitter over time for all three —
-        the pw-rigid line rides lowest almost everywhere. This is the same logic as a *tracking-error
-        trace* in NB01: a stabilized track has small frame-to-frame position change.
+        The per-frame trace below plots `nu.motion_index_trace` for all three versions. The pw-rigid
+        line stays lowest across almost the whole recording. This is the same idea as a tracking-error
+        trace in Week 1: a well-stabilized signal has a small frame-to-frame change.
         """
     )
     return
@@ -271,21 +313,28 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 4. Exercise — does registration actually reduce motion?
+        ## 4. Exercise — does registration reduce motion?
 
-        > **Hypothesis banner.** *Registration reduces frame-to-frame motion, and piecewise-rigid beats
-        > plain rigid:* $\text{MI}(\text{pw-rigid}) < \text{MI}(\text{rigid}) < \text{MI}(\text{raw})$.
+        **The question.** We want to confirm, with a number, that registration reduces frame-to-frame
+        motion and that piecewise-rigid does better than plain rigid:
+        $\text{MI}(\text{pw-rigid}) < \text{MI}(\text{rigid}) < \text{MI}(\text{raw})$.
 
-        **Toolbox.**
+        **What you already have.**
 
-        - `nu.motion_index(frames)` — scalar mean |frame-to-frame Δ| for a `(F, H, W)` movie.
-        - `raw`, `rigid`, `pwr` — the three `(F, H', w)` panels, already split for you.
-        - No I/O needed; the movie is loaded.
+        - `nu.motion_index(frames)` — returns one number, the motion index of a movie of shape
+          `(F, H, W)`; higher means more jitter.
+        - `raw`, `rigid`, `pwr` — the three panels, already split out for you. No file loading is needed.
 
-        **Your job.** Compute the motion index for each of the three panels and store them as
-        `mi_raw`, `mi_rigid`, `mi_pwr`. The self-check verifies the ordering **and** that pw-rigid
-        removes a real chunk of motion (a tolerance band pinned from the real movie). Grade the
-        *conclusion*, not a decimal: the honest result is that registration monotonically lowers MI.
+        **Your job.** Fill in the three lines in the next cell so that each variable holds the motion
+        index of one panel. The first line, `mi_raw`, is done for you as a worked example: it calls
+        `nu.motion_index` on the `raw` panel. Write the other two the same way, one for the `rigid`
+        panel and one for the `pwr` panel.
+
+        **What to expect.** After you run it, the self-check below reports the three numbers. You should
+        see them fall in order, `mi_pwr < mi_rigid < mi_raw`, with pw-rigid removing roughly a tenth of
+        the raw movie's motion. The self-check grades the *conclusion* (the ordering plus a tolerance
+        band), not an exact decimal, because the absolute values change with how the movie is
+        subsampled.
         """
     )
     return
@@ -294,9 +343,12 @@ def _(mo):
 @app.cell
 def _(nu, pwr, raw, rigid):
     # ------------------------------------------------------------------ YOUR CODE (edit this cell)
-    mi_raw = nu.motion_index(raw)
-    mi_rigid = nu.motion_index(rigid)
-    mi_pwr = nu.motion_index(pwr)
+    # Fill in the two blanks below. Each line should call nu.motion_index(...) on one panel.
+    # PURPOSE: nu.motion_index(frames) takes a movie array (F, H, W) and returns ONE number,
+    #          the average frame-to-frame change (bigger = more jitter).
+    mi_raw = nu.motion_index(raw)      # worked example: motion index of the raw panel.
+    mi_rigid = nu.motion_index(rigid)  # your turn: same call, but pass the `rigid` panel.
+    mi_pwr = nu.motion_index(pwr)      # your turn: same call, but pass the `pwr` (pw-rigid) panel.
     # ---------------------------------------------------------------------------------------------
     return mi_pwr, mi_raw, mi_rigid
 
@@ -313,12 +365,13 @@ def _(mo):
             ```
 
             **What you should find.** The three numbers fall in order:
-            `mi_pwr < mi_rigid < mi_raw`. Rigid registration shaves a few percent of frame-to-frame
-            motion off the raw movie; piecewise-rigid shaves off ~10% total — it catches the *local*
-            warping that a single whole-frame shift can't. The absolute values scale with how you
-            subsample (bigger frame gaps → bigger apparent motion), which is why the **ordering** is the
-            real result, not the decimal. This is the imaging-side proof of the same claim NB01 made
-            about tracks: alignment is not cosmetic, it measurably reduces the signal's jitter.
+            `mi_pwr < mi_rigid < mi_raw`. Rigid registration removes a few percent of the frame-to-frame
+            motion in the raw movie; piecewise-rigid removes about 10 percent in total, because it also
+            catches the *local* warping that a single whole-frame shift cannot. The absolute values
+            depend on how the movie is subsampled (larger frame gaps make the apparent motion larger),
+            which is why the **ordering** is the real result rather than any single decimal. This is the
+            imaging-side version of the same point Week 1 made about pose tracks: alignment is not
+            cosmetic. It measurably reduces the signal's jitter.
             """
         )
     })
@@ -363,30 +416,30 @@ def _(mi_pwr, mi_raw, mi_rigid, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "Deeper: the paper & where the analogy stops": mo.md(
+        "Reference: the algorithm and its limits": mo.md(
             r"""
-            **The motion-correction lineage.** The rigid / piecewise-rigid split you just looked at is
-            the design of **NoRMCorre** — Pnevmatikakis & Giovannucci, *"NoRMCorre: An online algorithm
+            **Where these methods come from.** The rigid / piecewise-rigid split shown in this movie is
+            the design of **NoRMCorre** (Pnevmatikakis & Giovannucci, *"NoRMCorre: An online algorithm
             for piecewise rigid motion correction of calcium imaging data,"* **J. Neurosci. Methods**
-            291:83–94 (2017) — the motion-correction stage of the widely used **CaImAn** pipeline
-            (Giovannucci et al., *eLife* 2019). NoRMCorre estimates a template, aligns each frame to it
-            by phase-correlation (rigid), then refines with **per-patch** shifts that are smoothly
-            interpolated back together (piecewise-rigid) to catch non-uniform tissue motion — exactly
-            the raw → rigid → pw-rigid progression rendered in this movie.
+            291:83–94, 2017), the motion-correction stage of the widely used **CaImAn** pipeline
+            (Giovannucci et al., *eLife* 2019). NoRMCorre estimates a reference template, aligns each
+            frame to it by phase-correlation (rigid), then refines the result with **per-patch** shifts
+            that are smoothly interpolated back together (piecewise-rigid) to handle non-uniform tissue
+            motion. That is exactly the raw → rigid → pw-rigid progression in this movie.
 
-            **The shared mathematics with NB01.** Both are *image/point registration*: estimate a
-            transform (a translation, or a field of local translations) that best maps one time sample
-            onto a reference, then apply it so downstream reads are made in a stable frame. Pose
+            **The shared idea with Week 1.** Both are *registration*: estimate a transform (a single
+            translation, or a field of local translations) that best maps one time sample onto a
+            reference, then apply it so that later measurements are made in a stable frame. Pose
             stabilization and miniscope motion correction are two instances of the same alignment
             problem.
 
-            **Where the analogy stops.** Pose tracking registers a handful of *labeled keypoints* with
-            known identity; motion correction registers *dense pixel intensities* with no labels, and
-            must invent its own reference template — so it can be fooled by real brightness changes
-            (a neuron firing looks a little like the frame moving) in a way keypoint tracking is not.
-            And "better MI" is necessary but **not sufficient**: over-aggressive piecewise warping can
-            lower the motion index while smearing real signal, so pipelines validate against a
-            correlation image and residual traces, not MI alone.
+            **The limits of the analogy, and of the metric.** Pose tracking registers a handful of
+            *labeled* keypoints whose identity is known. Motion correction registers *dense* pixel
+            intensities with no labels, and has to build its own reference template, so it can be misled
+            by real brightness changes (a neuron firing looks a little like the frame moving). Also, a
+            lower motion index is necessary but not sufficient: overly aggressive piecewise warping can
+            lower the motion index while smearing the real signal, so pipelines also check a correlation
+            image and residual traces, not the motion index alone.
             """
         )
     })
@@ -398,18 +451,18 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## The twin, closed — and what we ship next
+        ## Summary and what comes next
 
-        You just relived NB01 on the imaging rig. **Before you can read a signal, you must align it
-        across time.** The pose-tracking drift you stabilized in Week 1 is the same enemy as miniscope
-        FOV drift; rigid and piecewise-rigid registration are the imaging analog of stabilizing tracks,
-        and the **motion index** is the number that proves it worked (`pw-rigid < rigid < raw`).
+        The point of this notebook is a single step: before you can read a signal, you must align it
+        across time. Miniscope FOV drift is the imaging version of the pose-tracking drift you handled
+        in Week 1. Rigid and piecewise-rigid registration are the tools that fix it, and the motion
+        index is the number that confirms it worked (`pw-rigid < rigid < raw`).
 
-        A registered movie is a stack of frames where pixel `(y, x)` means the same neuron over time.
-        That is the *precondition* for the actual deliverable of Week 2. **Next (NB10): pull a neuron's
-        trace out of the pixels** — background-subtract a striatal miniscope movie, drop an ROI on a
-        cell, and watch its calcium trace separate from background. Registration made "a neuron's
-        trace" a meaningful phrase; NB10 finally reads it.
+        A registered movie is a stack of frames in which pixel `(y, x)` refers to the same neuron over
+        time. That is the precondition for the rest of Week 2. **Next, in NB10, we pull a neuron's trace
+        out of the pixels:** background-subtract a striatal miniscope movie, place a region of interest
+        on a cell, and watch its calcium trace separate from the background. Registration is what makes
+        "a neuron's trace" a well-defined thing to read; NB10 reads it.
         """
     )
     return

@@ -57,39 +57,31 @@ def _():
     return make_subplots, pd
 
 
-# ============================================================ 1. Lab-meeting briefing
+# ============================================================ 1. Why this notebook
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        # NB03 · Feeling the Signal in Time
+        # NB03 · The Signal in Time
 
-        > **FROM: Circuit Team → TO: Behavior Team**
-        >
-        > Two mice in an encounter are two coupled systems: they have a **tempo** and a
-        > **direction of influence**. Before you compress everything into a map, we need the
-        > behavioral twins of the two analyses we live by on the neural side — a **rhythm**
-        > readout (the wavelet we run on LFP) and a **who-leads-whom** readout (directed
-        > functional connectivity). Ship us both, honestly caveated.
-        >
-        > **Deliverable:** a rhythm spectrogram of one event + a lead-lag coordination estimate
-        > with a null it has to beat.
-        > **It unblocks:** knowing whether "who moved first" is a signal we can trust to
-        > time-align to a recording, or noise from a 2.6-second window.
-        >
-        > **Today's lab-meeting question:** *In the run-up to contact, who moves first — and is
-        > that leader estimate robust, or does it wash out against a within-event shuffle?*
+        ## Why we are here
 
-        This is the **last look before the collapse**. NB04 (PCA) and NB05 (the map) are about to
-        *average away* time and coordination. Today we survey what they discard: distributions,
-        how features move **together**, how a single event moves **in time and frequency**, and how
-        two mice move **relative to each other**.
+        You are a behavioral neuroscientist studying social behavior in mice. In the previous
+        notebooks you turned raw video into **pose**: for each mouse, in each video frame, the
+        pixel position of 15 body **keypoints** (nose, ears, shoulders, tail base, and so on). A
+        keypoint is just an `(x, y)` coordinate — a labelled dot on the animal's body. Stacked over
+        time, those dots become the movement of the animal.
 
-        *Neuroscience connection —* the Morlet wavelet you run below on a mouse's speed is the
-        **exact transform** neuroscientists slide along an LFP to find theta and gamma; the lead-lag
-        you measure is the behavioral face of **directed functional connectivity**. Kingsbury et al.
-        (2019) found that dmPFC coupling *between two brains* tracks their dominance relationship —
-        the same coordination logic, one level up.
+        Two notebooks from now (NB04, NB05) we will **compress** each social interaction into a small
+        set of numbers, and in doing so we will average away *time* — the moment-to-moment unfolding
+        of the encounter. Before we discard it, this notebook looks carefully at what that time course
+        contains. We ask three plain questions about an interaction:
+
+        1. **What is the shape of each measurement?** (its distribution across many events)
+        2. **How does one mouse move through time and at what rhythm?** (a time–frequency view)
+        3. **Do two mice move together, and who moves first?** (coordination between animals)
+
+        These are standard tools for quantifying behavior objectively, rather than by eye.
         """
     )
     return
@@ -97,30 +89,41 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.accordion(
-        {
-            "🔬 Deeper: the paper & where the analogy stops": mo.md(
-                r"""
-                **Shared mathematics.** A continuous wavelet transform convolves a signal with
-                scaled copies of a mother wavelet — identical whether the signal is a wagging tail
-                or hippocampal LFP (Torrence & Compo 1998; Cohen 2014, *Analyzing Neural Time
-                Series Data*; Buzsáki & Draguhn 2004, *Science*). Cross-correlation / Granger
-                lead-lag is the core of **directed functional connectivity** (Granger 1969; Bressler
-                & Seth 2011, *NeuroImage* 58:323–329; Seth, Barrett & Barnett 2015, *J. Neurosci.*).
-                Berman et al. (2014, *J. R. Soc. Interface*) built MotionMapper on exactly this
-                postural-spectrogram idea.
+    mo.md(
+        r"""
+        ## Definitions you need first
 
-                **Species / preparation.** Kingsbury et al. (2019, *Cell*) — freely-interacting
-                **mice**, dual fiber photometry / miniscope in dmPFC; the coupling was measured with
-                a **GLM / correlation**, *not* Granger (looser analogy — flagged honestly).
+        **An approach event.** The dataset is a collection of short clips, each about 2.6 seconds
+        long (130 frames at 50 frames per second). Each clip was extracted by the lab's tracking
+        pipeline as an *approach*: a moment when two mice **start far apart** (their body centers
+        roughly 200 pixels apart) and **close the distance** until they are in contact (centers about
+        150 pixels apart, noses nearly touching). So every clip is centered on the same kind of
+        moment — one animal coming up to another — with **contact** occurring at a fixed point,
+        frame 40 (0.8 s in).
 
-                **Where the analogy stops.** A wagging tail is not an LFP: only the *transform*
-                transfers, and **matching Hz ≠ matching mechanism**. Lead-lag measures **prediction,
-                not cause** — a shared third mouse or common arousal can fake it (Kingsbury's own
-                caveat). We measure coordination, never proof of driving.
-                """
-            )
-        }
+        **Three mice, named by role.** Each clip contains three animals, stored in a fixed order:
+
+        - the **approacher** — the mouse that closes the distance (mouse 0),
+        - the **approachee** — the mouse being approached (mouse 1),
+        - the **bystander** — the third mouse, present but not the focus (mouse 2).
+
+        **Rank, and how we color mice.** Each mouse has a social **rank** measured separately by the
+        lab. Throughout every notebook, mice are colored **only by rank**: **Dom = red**,
+        **Mid = blue**, **Sub = green** (gray = unknown). We never use color to mean anything else
+        about a mouse.
+
+        **The aggression label.** Some approaches escalate into aggression and some do not. A member
+        of the lab **watched each clip and hand-scored it** as aggression or not — these are
+        **human-labelled ground truth**, not something a model guessed. Roughly 450 of the 1,500
+        clips are labelled aggression. We will often split plots by this label to see where
+        aggression differs from ordinary approach.
+
+        **Who interacts with whom.** With three animals in the frame, a natural question is: which two
+        are actually engaged with each other? One simple clue is **coordination** — if two mice speed
+        up and slow down *together*, their movements are **correlated**, and correlation is a hint
+        that they are interacting rather than moving independently. We will make this precise in
+        Section 4, and we will test how far the hint can be trusted.
+        """
     )
     return
 
@@ -194,16 +197,21 @@ def _(cu, np):
 @app.cell
 def _():
     # Pinned build-time constants (verified against the real bundle; see notebook header).
-    HERO = 909                 # cage-15, male, aggression, contact_rel=40, node reliability 0.998
+    EXAMPLE = 909              # example approach event: cage-15, male, aggression, contact at frame 40
     NULL_MEAN = 0.50           # within-event shuffle null: mean approacher-leads fraction
     NULL_HI = 0.545            # shuffle null 97.5th percentile
     FULL_FRAC = 0.479          # observed appr-leads fraction, all 420 usable aggression events
     FULL_N = 420
-    DOM_FREQ = 1.5             # hero-event dominant speed frequency (Hz), 1-12 Hz band
-    return DOM_FREQ, FULL_FRAC, FULL_N, HERO, NULL_HI, NULL_MEAN
+    DOM_FREQ = 1.5             # example-event dominant speed frequency (Hz), 1-12 Hz band
+    HIFREQ = [87, 986, 1, 452, 575, 1052]   # well-tracked events with HIGH-frequency speed content
+    CC_HI = 189                # example where approacher+approachee move together (peak corr ~0.89)
+    CC_LO = 604                # example where a BYSTANDER pair is most correlated, not the interacting pair
+    WHO_FRAC = 0.393           # frac of events where the interacting pair is the most-correlated of 3 pairs
+    return (CC_HI, CC_LO, DOM_FREQ, FULL_FRAC, FULL_N, EXAMPLE, HIFREQ,
+            NULL_HI, NULL_MEAN, WHO_FRAC)
 
 
-# ============================================================ 2. Readout board (top)
+# ============================================================ 2. Progress board (top)
 @app.cell(hide_code=True)
 def _(ROOT, X, mo, pd):
     def _board(root):
@@ -217,21 +225,22 @@ def _(ROOT, X, mo, pd):
     _student_A = int(X.shape[1])
     mo.md(
         f"""
-        ### 📋 Readout Board — start of NB03
+        ### Progress board — start of NB03
 
-        | Gauge | Benchmark | Your number | Note |
+        | Gauge | Reference | Your number | Note |
         |---|---|---|---|
-        | **A · size of representation** | {_bench_A:.0f} features (from NB02) | **{_student_A}** features | We only *look* today — no compression yet. |
-        | **B · held-out readiness** | rises in Phase 2 | **0** | Still in Discover; the decoder comes in NB08. |
+        | **A · size of the representation** | {_bench_A:.0f} features (end of NB02) | **{_student_A}** features | We only *look* today; we do not compress yet. |
+        | **B · held-out readiness** | rises in Phase 2 | **0** | Still in the Discover phase; the decoder is built in NB08. |
 
-        *Gauge A holds at 19 this notebook: EDA doesn't shrink the representation, it decides what
-        the coming collapse is allowed to throw away.*
+        Gauge A stays at 19 for this whole notebook. Exploratory analysis does not shrink the
+        representation; its job is to decide **what** the later compression (NB04, NB05) is allowed to
+        throw away.
         """
     )
     return
 
 
-# ============================================================ 3. Sealed Cage 16
+# ============================================================ 3. Held-out cage 16
 @app.cell(hide_code=True)
 def _(ho, mo):
     _n16 = int(len(ho["agg_label"]))
@@ -240,32 +249,75 @@ def _(ho, mo):
         <div style="border:2px dashed #b00; border-radius:10px; padding:14px 18px;
         background:repeating-linear-gradient(45deg,#faf0f0,#faf0f0 10px,#f3e4e4 10px,#f3e4e4 20px);">
 
-        ### 🔒 Sealed Cage 16 — the animal on the rig
+        ### Held-out cage 16 — kept sealed
 
-        Events recorded: **{_n16}** &nbsp;·&nbsp; skeletons: ▓▓▓ (greyed) &nbsp;·&nbsp;
-        labels: ███████ (redacted)
+        Events recorded: **{_n16}** &nbsp;·&nbsp; skeletons hidden &nbsp;·&nbsp; labels hidden
 
-        The held-out bet lives here: *a readout is only trustworthy if it survives a cage it never
-        saw.* You may **not** touch Cage 16's rhythm or coordination yet.
+        Cage 16 is set aside so we can later test whether our methods work on data they were never
+        tuned on. A result is only trustworthy if it holds on a cage the analysis never saw. We do not
+        touch Cage 16 in this notebook.
 
-        **Notebooks until unlock: 5** &nbsp;(opens in NB08).
+        **Unlocks in NB08.**
         </div>
         """
     )
     return
 
 
-# ============================================================ 4. Feature distributions
+# ============================================================ 4. What an approach looks like
+@app.cell(hide_code=True)
+def _(EXAMPLE, mo):
+    mo.md(
+        rf"""
+        ## The example approach event
+
+        We will follow **one clip** throughout this notebook so every method has a concrete picture
+        attached to it. Our example is event #{EXAMPLE} (Cage 15, male; a hand-scored aggression
+        approach with clean tracking). The approacher is the **Dom (red)** mouse, the approachee is
+        the **Sub (green)** mouse, and the **Mid (blue)** mouse is the bystander.
+
+        The animation below shows the three skeletons over the 2.6-second clip. Watch the red mouse
+        close in on the green one; the small red dot marks the moment of contact.
+        """
+    )
+    return
+
+
+@app.cell
+def _(EXAMPLE, cr, cu, kp, mo, ranks):
+    _gif = cu.event_gif_bytes(kp[EXAMPLE], ranks[EXAMPLE], contact_rel=int(cr[EXAMPLE]), cell=210, fps=20)
+    mo.vstack([
+        mo.md(f"**Example approach event #{EXAMPLE}** — skeletons colored by rank "
+              "(red = Dom, blue = Mid, green = Sub); the white arrow points approacher → approachee; "
+              "the red dot marks contact onset."),
+        mo.Html(cu.gif_img_html(_gif, width=230)),
+    ])
+    return
+
+
+# ============================================================ 5. Feature distributions
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ## 1 · Distributions — read the raw trace like a physiologist
+        ## 1 · Distributions — look at each measurement first
 
-        Before modeling anything, *look*. Each of the 19 features is a distribution; aggression
-        often lives in the **tail**, not the mean. Pick a feature and a way to split it — the honest
-        habit is to always split by **sex** and **condition** (pre / dep / post), because those are
-        the axes a between-cage confound will later hide inside.
+        **Why.** Before fitting any model, it is good practice to look at the raw numbers. From the
+        pose, the pipeline computed **19 features** per event — single numbers that summarize the
+        interaction, such as how fast the mice close the gap (`closing_speed`) or how directly one
+        mouse faces the other (`appr_faces_appe`). Each feature has a **distribution**: the spread of
+        its values across all 1,500 events. Aggression often shows up not as a shift in the *average*
+        but as a heavier **tail** — a subset of events with unusually large values.
+
+        **Method.** Pick a feature and a way to split the events into groups. A histogram shows, for
+        each group, how often each value occurs. Splitting by **sex** and by **condition** (pre / dep
+        / post) is a habit worth keeping, because those are the variables a hidden confound could ride
+        in on later.
+
+        - **Purpose:** compare a feature's distribution across groups.
+        - **Inputs:** one feature column, and a grouping variable.
+        - **Output:** overlaid histograms (probability density, so groups of different size are
+          comparable).
         """
     )
     return
@@ -307,17 +359,27 @@ def _(X, agg, cond, feat_sel, fnames, go, mo, np, sexv, split_sel):
     return
 
 
-# ============================================================ 5. Correlation heatmap
+# ============================================================ 6. Correlation heatmap
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ## 2 · The 19×19 correlation heatmap — why the collapse is coming
+        ## 2 · The 19×19 feature-correlation heatmap
 
-        These 19 knobs are **not independent**. `bystander_dist_mean` and `bystander_dist_min`
-        move together (r ≈ 0.9); the two facing-cosines and closing speed share structure. Redundant
-        axes are exactly what **PCA** will exploit in NB04 — 19 correlated features are really a
-        *handful* of independent ones. Read this heatmap as the motivation for the next notebook.
+        **Why.** The 19 features are **not independent** measurements. Many of them rise and fall
+        together across events, which means the representation carries **redundant** information. This
+        matters because the next notebook (NB04) uses a method called **PCA** to replace many
+        redundant features with a few independent ones — and this heatmap is the picture that
+        motivates it.
+
+        **Definition — correlation.** The **Pearson correlation** `r` between two features measures
+        how linearly they move together across events: `r = +1` (rise together), `r = -1` (one rises
+        as the other falls), `r = 0` (unrelated). Here we compute `r` for every pair of the 19
+        features and display it as a colored grid.
+
+        **Method.** `np.corrcoef` takes the standardized feature matrix (events × features) and
+        returns the 19×19 matrix of pairwise correlations. Bright off-diagonal blocks mark groups of
+        features that are essentially measuring the same thing.
         """
     )
     return
@@ -337,56 +399,49 @@ def _(X, cu, fnames, go, mo, np):
     _i, _j = np.unravel_index(np.argmax(_absC), _C.shape)
     mo.vstack([_fig, mo.md(
         f"**Most-correlated pair:** `{fnames[_i]}` ↔ `{fnames[_j]}` (r = {_C[_i, _j]:.2f}). "
-        f"Bright off-diagonal blocks are why ~6 PCs will hold most of the variance.")])
+        f"Because several features are this redundant, about 6 combined axes will capture most of the "
+        "variation in NB04.")])
     return
 
 
-# ============================================================ 6. Rhythm — the Hero Event
+# ============================================================ 7. Rhythm in time & frequency
 @app.cell(hide_code=True)
-def _(HERO, mo):
+def _(EXAMPLE, mo):
     mo.md(
         rf"""
-        ## 3 · Rhythm — the Hero Event in time and frequency
+        ## 3 · Rhythm — one mouse in time and frequency
 
-        We follow **Hero Event #{HERO}** (Cage 15, male, a real aggression approach; node reliability
-        0.998). *Design note: the course's original "#742" is a cage-12 non-aggression event in the
-        shipped data, so we anchor the male-aggression hero to the cleanest cage-15 event, #{HERO}.*
+        **Why.** A single number like "average speed" hides *how* a mouse moved. Two animals can have
+        the same average speed while one glides smoothly and the other darts in quick bursts. The
+        **rhythm** of movement — how quickly speed rises and falls — is itself informative, and it is
+        exactly the kind of structure the later compression discards.
 
-        First the raw traces: the **closing distance** collapses and the **speeds** spike into
-        contact. Then a **Morlet wavelet** — "a little wave slid along the signal" — turns speed
-        into a **time × frequency** picture: which rhythm is present, and when.
+        **Method, part 1 — raw traces.** First we simply plot, for example event #{EXAMPLE}, the
+        distance between the two mice and each mouse's speed over time. We expect the distance to
+        collapse and the speeds to rise as contact approaches.
         """
     )
     return
 
 
 @app.cell
-def _(HERO, cr, cu, kp, mo, ranks):
-    _gif = cu.event_gif_bytes(kp[HERO], ranks[HERO], contact_rel=int(cr[HERO]), cell=210, fps=20)
-    mo.vstack([
-        mo.md(f"**Hero Event #{HERO}** — rank-colored skeletons (red=Dom, blue=Mid, green=Sub); "
-              "white arrow = approacher→approachee; red dot = contact onset."),
-        mo.Html(cu.gif_img_html(_gif, width=230)),
-    ])
-    return
-
-
-@app.cell
-def _(HERO, appr_appe_speed, cr, cu, kp, make_subplots, mo, np):
-    _k = kp[HERO]
+def _(EXAMPLE, appr_appe_speed, cr, cu, kp, make_subplots, mo, np, ranks):
+    _k = kp[EXAMPLE]
     _c0 = cu._centroids(_k[:, 0]); _c1 = cu._centroids(_k[:, 1])
     _dist = np.linalg.norm(_c0 - _c1, axis=1)               # (T,) closing distance
-    _s0, _s1 = appr_appe_speed(kp, HERO)                    # (T-1,)
+    _s0, _s1 = appr_appe_speed(kp, EXAMPLE)                    # (T-1,)
     _t = np.arange(len(_dist)) / cu.FPS
     _te = np.arange(len(_s0)) / cu.FPS
-    _cf = int(cr[HERO]) / cu.FPS
+    _cf = int(cr[EXAMPLE]) / cu.FPS
+    _c_appr = cu.RANK_HEX[int(ranks[EXAMPLE][0])]              # approacher colored by ITS rank
+    _c_appe = cu.RANK_HEX[int(ranks[EXAMPLE][1])]              # approachee colored by ITS rank
     _fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                          subplot_titles=("pair distance (px)", "per-mouse speed (px/frame)"))
     _fig.add_scatter(x=_t, y=_dist, mode="lines", line=dict(color="#333"), name="pair distance",
                      row=1, col=1)
-    _fig.add_scatter(x=_te, y=_s0, mode="lines", line=dict(color="#d62728"), name="approacher",
+    _fig.add_scatter(x=_te, y=_s0, mode="lines", line=dict(color=_c_appr), name="approacher (Dom)",
                      row=2, col=1)
-    _fig.add_scatter(x=_te, y=_s1, mode="lines", line=dict(color="#1f77b4"), name="approachee",
+    _fig.add_scatter(x=_te, y=_s1, mode="lines", line=dict(color=_c_appe), name="approachee (Sub)",
                      row=2, col=1)
     for _r in (1, 2):
         _fig.add_vline(x=_cf, line=dict(color="#888", dash="dot"), row=_r, col=1)
@@ -394,8 +449,32 @@ def _(HERO, appr_appe_speed, cr, cu, kp, make_subplots, mo, np):
                        margin=dict(l=10, r=10, t=40, b=10))
     _fig.update_xaxes(title_text="time (s)", row=2, col=1, showgrid=False)
     _fig.update_yaxes(showgrid=False)
-    mo.vstack([_fig, mo.md("Dotted line = contact onset. The approacher's speed leads the collision; "
-                           "next we ask at *what rhythm*.")])
+    mo.vstack([_fig, mo.md("The dotted line marks contact. The distance falls and both speeds rise "
+                           "into the collision. Next we ask *at what rhythm* the speed changes.")])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        **Method, part 2 — the wavelet spectrogram.** To read rhythm we use a **Morlet wavelet
+        transform**. In plain terms: a wavelet is a short wave-shaped template. We slide a template of
+        a given frequency along the speed signal and measure how strongly the signal matches it at
+        each moment. Repeating this across many frequencies produces a **spectrogram** — a picture
+        with **time** on the horizontal axis, **frequency** (rhythm, in cycles per second, Hz) on the
+        vertical axis, and brightness showing how much of that rhythm is present at that moment.
+
+        - **Function:** `cu.wavelet_power(signal, freqs, fps)` (wrapped by `padded_wavelet`, which
+          pads the short clip so low-frequency templates fit).
+        - **Inputs:** a 1-D signal (here the approacher's speed), a list of frequencies to test, and
+          the sampling rate (50 fps).
+        - **Output:** a `frequency × time` grid of power — bright where that rhythm is present.
+
+        Slide the control to change the top frequency shown. The dotted white line marks the
+        strongest (dominant) rhythm.
+        """
+    )
     return
 
 
@@ -407,8 +486,8 @@ def _(mo):
 
 
 @app.cell
-def _(DOM_FREQ, HERO, appr_appe_speed, cu, fmax_slider, go, kp, mo, np, padded_wavelet):
-    _s0, _ = appr_appe_speed(kp, HERO)
+def _(DOM_FREQ, EXAMPLE, appr_appe_speed, cu, fmax_slider, go, kp, mo, np, padded_wavelet):
+    _s0, _ = appr_appe_speed(kp, EXAMPLE)
     _freqs = np.linspace(1.0, float(fmax_slider.value), 45)
     _P = padded_wavelet(_s0, _freqs, cu.FPS, padlen=600)
     _t = np.arange(_P.shape[1]) / cu.FPS
@@ -421,8 +500,9 @@ def _(DOM_FREQ, HERO, appr_appe_speed, cu, fmax_slider, go, kp, mo, np, padded_w
                        xaxis_title="time (s)", yaxis_title="frequency (Hz)",
                        margin=dict(l=10, r=10, t=50, b=10))
     mo.vstack([fmax_slider, _fig, mo.md(
-        f"**Dominant-frequency readout ≈ {_dom:.1f} Hz** (pinned build value {DOM_FREQ} Hz over the "
-        "1–12 Hz band) — a slow locomotor rhythm, not an LFP oscillation.")])
+        f"**Dominant rhythm ≈ {_dom:.1f} Hz** (pinned build value {DOM_FREQ} Hz over the 1–12 Hz "
+        "band). This is a slow rhythm — the pace of ordinary locomotion, a mouse taking a few steps "
+        "per second — not a fast oscillation.")])
     return
 
 
@@ -430,36 +510,210 @@ def _(DOM_FREQ, HERO, appr_appe_speed, cu, fmax_slider, go, kp, mo, np, padded_w
 def _(mo):
     mo.md(
         r"""
-        > **⚠️ How the wavelet breaks on this data.** The event is only ~2.6 s (130 frames). Two
-        > failure modes are baked in:
-        >
-        > 1. **The Heisenberg (time–frequency) trade-off.** A wavelet tight enough to localize *when*
-        >    a burst happened is blurry about *what frequency* it was, and vice-versa. You cannot have
-        >    sharp time and sharp frequency at once.
-        > 2. **Edge effects.** A low-frequency wavelet is *wider than the window*, so its kernel runs
-        >    off both ends. We reflect-pad just to fit it — and the padded flanks are fabricated, not
-        >    measured. Trust the **center** of the spectrogram, distrust the edges.
-        >
-        > This is why a wavelet beats an FFT here: an FFT assumes one stationary spectrum for the
-        > whole window; the wavelet admits the rhythm *changes* as contact approaches.
+        ### A concrete use: finding events with high-frequency movement
+
+        The example event's speed is dominated by a slow (~1.5 Hz) locomotor rhythm. But some events
+        contain **high-frequency** speed content: the speed rises and falls several times per second,
+        which corresponds to **quick, jerky movement** — rapid darting, scrambling, or repeated
+        start-and-stop — rather than a smooth glide.
+
+        We can use the wavelet to *find* those events: for every event we take the dominant frequency
+        of the approacher's speed, and keep the ones with an unusually high value. Below are the
+        skeleton animations of six such high-frequency events. Watch how their movement looks
+        abrupt and stuttery compared with the smooth approach in the example event above. (Both
+        aggression and non-aggression events appear here — high-frequency movement is a description of
+        *how* the animal moved, not by itself a sign of aggression.)
         """
     )
     return
 
 
-# ============================================================ 7. Coordination — who leads?
+@app.cell
+def _(HIFREQ, cr, cu, kp, mo, ranks):
+    _events = [(kp[i], ranks[i], int(cr[i])) for i in HIFREQ]
+    _gif = cu.grid_gif_bytes(_events, ncols=3, cell=150, fps=18)
+    mo.vstack([
+        mo.md(f"**High-frequency movement exemplars** (events {HIFREQ}) — skeletons colored by rank. "
+              "Their speed changes several times per second: short darts and abrupt stops."),
+        mo.Html(cu.gif_img_html(_gif, width=470)),
+    ])
+    return
+
+
+@app.cell
+def _(HIFREQ, appr_appe_speed, cu, go, kp, mo, np, padded_wavelet):
+    # Spectrogram of one HIGH-frequency event, for contrast with the ~1.5 Hz example above.
+    _i = HIFREQ[0]
+    _s0, _ = appr_appe_speed(kp, _i)
+    _freqs = np.linspace(1.0, 12.0, 45)
+    _P = padded_wavelet(_s0, _freqs, cu.FPS, padlen=600)
+    _t = np.arange(_P.shape[1]) / cu.FPS
+    _dom = float(_freqs[np.argmax(_P.mean(axis=1))])
+    _fig = go.Figure(go.Heatmap(z=_P, x=_t, y=_freqs, colorscale="Viridis",
+                                colorbar=dict(title="power")))
+    _fig.add_hline(y=_dom, line=dict(color="white", dash="dot"))
+    _fig.update_layout(template="plotly_white", height=360, font=dict(size=14),
+                       title=f"High-frequency event #{_i} — dominant ≈ {_dom:.1f} Hz",
+                       xaxis_title="time (s)", yaxis_title="frequency (Hz)",
+                       margin=dict(l=10, r=10, t=50, b=10))
+    mo.vstack([_fig, mo.md(
+        f"Here the power sits **higher** on the frequency axis (~{_dom:.1f} Hz) than in the example "
+        "event's slow-locomotion spectrogram. The bright band moved up because the speed itself "
+        "changes more times per second.")])
+    return
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ## 4 · Coordination — who moves first?
+        ### Two ways the wavelet is limited on this data
 
-        Slide one mouse's speed trace against the other and find the lag of peak correlation:
-        `peak_lag > 0` means the **approacher leads**. We run this on **pre-contact frames only** —
-        after contact the approacher recovers "by construction," which would be circular.
+        These clips are only ~2.6 s long, and that creates two honest limitations to keep in mind:
 
-        A tiny intuition toy first: impose a known lag between two coupled signals and watch
-        `cross_corr_lag` recover it.
+        1. **Time–frequency trade-off.** A wavelet narrow enough to pin down *when* a burst happened
+           is blurry about *what frequency* it was, and vice versa. You cannot have sharp timing and
+           sharp frequency at the same time.
+        2. **Edge effects.** A low-frequency template is wider than the clip, so it runs off both
+           ends. We pad the signal just to fit the template, but the padded flanks are fabricated, not
+           measured. Trust the **middle** of each spectrogram and distrust the extreme left and right
+           edges.
+
+        This is also why a wavelet is more appropriate here than a single Fourier transform (FFT): an
+        FFT assumes one fixed spectrum for the whole clip, whereas the wavelet allows the rhythm to
+        **change** as contact approaches — which it does.
+        """
+    )
+    return
+
+
+# ============================================================ 8. Coordination between two mice
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        ## 4 · Coordination — who is interacting with whom?
+
+        **Why.** Each clip has three mice, and we would like to know which two are actually engaged.
+        The pipeline *labelled* one pair as the approacher and approachee, but can we recover that
+        from movement alone? The intuition from the top of the notebook: two mice that are interacting
+        should move in a **coordinated** way — when one speeds up, so does the other.
+
+        **Definition — cross-correlation.** To measure coordination we slide one mouse's speed trace
+        against another's and, at each shift (**lag**), compute how well the two line up. The
+        **peak** value (best alignment over small lags) is a single number between about -1 and +1:
+        near +1 means the two speed traces rise and fall together (**highly coordinated**), near 0
+        means they are unrelated.
+
+        - **Function:** `cu.cross_corr_lag(x, y, max_lag)`.
+        - **Inputs:** two speed traces and the largest lag to consider (in frames).
+        - **Outputs:** the list of lags, the correlation at each lag, and the peak lag.
+
+        Below, two examples make the idea concrete.
+        """
+    )
+    return
+
+
+@app.cell
+def _(CC_HI, cr, cu, go, kp, make_subplots, mo, np, ranks):
+    _i = CC_HI
+    _k = kp[_i]
+    _sp = [np.nan_to_num(np.linalg.norm(np.diff(cu._centroids(_k[:, m]), axis=0), axis=1))
+           for m in range(3)]
+    _t = np.arange(len(_sp[0])) / cu.FPS
+    _lags, _corr, _pk = cu.cross_corr_lag(_sp[0], _sp[1], 10)
+    _peak = float(_corr.max())
+    _c0 = cu.RANK_HEX[int(ranks[_i][0])]; _c1 = cu.RANK_HEX[int(ranks[_i][1])]
+    _fig = make_subplots(rows=1, cols=2, column_widths=[0.6, 0.4],
+                         subplot_titles=("approacher & approachee speed (px/frame)",
+                                         "cross-correlation vs lag"))
+    _fig.add_scatter(x=_t, y=_sp[0], mode="lines", line=dict(color=_c0), name="approacher",
+                     row=1, col=1)
+    _fig.add_scatter(x=_t, y=_sp[1], mode="lines", line=dict(color=_c1), name="approachee",
+                     row=1, col=1)
+    _fig.add_scatter(x=_lags, y=_corr, mode="lines+markers", line=dict(color="#7b3294"),
+                     showlegend=False, row=1, col=2)
+    _fig.update_layout(template="plotly_white", height=340, font=dict(size=13),
+                       title=f"HIGH coordination — event #{_i}: peak correlation ≈ {_peak:.2f}",
+                       margin=dict(l=10, r=10, t=60, b=10))
+    _fig.update_xaxes(showgrid=False); _fig.update_yaxes(showgrid=False)
+    _gif = cu.event_gif_bytes(_k, ranks[_i], contact_rel=int(cr[_i]), cell=170, fps=18)
+    mo.vstack([_fig, mo.Html(cu.gif_img_html(_gif, width=200)),
+               mo.md("The two speed traces rise and fall together, so the peak correlation is high. "
+                     "In the animation the two mice really are moving as a coordinated pair.")])
+    return
+
+
+@app.cell
+def _(CC_LO, cr, cu, go, kp, make_subplots, mo, np, ranks):
+    _i = CC_LO
+    _k = kp[_i]
+    _sp = [np.nan_to_num(np.linalg.norm(np.diff(cu._centroids(_k[:, m]), axis=0), axis=1))
+           for m in range(3)]
+    _t = np.arange(len(_sp[0])) / cu.FPS
+    _pk01 = float(cu.cross_corr_lag(_sp[0], _sp[1], 10)[1].max())     # interacting pair
+    _pk12 = float(cu.cross_corr_lag(_sp[1], _sp[2], 10)[1].max())     # a bystander pair
+    _c0 = cu.RANK_HEX[int(ranks[_i][0])]; _c1 = cu.RANK_HEX[int(ranks[_i][1])]
+    _c2 = cu.RANK_HEX[int(ranks[_i][2])]
+    _fig = make_subplots(rows=1, cols=1)
+    _fig.add_scatter(x=_t, y=_sp[0], mode="lines", line=dict(color=_c0), name="approacher")
+    _fig.add_scatter(x=_t, y=_sp[1], mode="lines", line=dict(color=_c1), name="approachee")
+    _fig.add_scatter(x=_t, y=_sp[2], mode="lines", line=dict(color=_c2, dash="dot"), name="bystander")
+    _fig.update_layout(template="plotly_white", height=320, font=dict(size=13),
+                       title=(f"LOW coordination for the labelled pair — event #{_i}: "
+                              f"approacher–approachee ≈ {_pk01:.2f}, but approachee–bystander ≈ {_pk12:.2f}"),
+                       xaxis_title="time (s)", yaxis_title="speed (px/frame)",
+                       margin=dict(l=10, r=10, t=60, b=10))
+    _fig.update_xaxes(showgrid=False); _fig.update_yaxes(showgrid=False)
+    _gif = cu.event_gif_bytes(_k, ranks[_i], contact_rel=int(cr[_i]), cell=170, fps=18)
+    mo.vstack([_fig, mo.Html(cu.gif_img_html(_gif, width=200)),
+               mo.md("Here the labelled approacher and approachee are **poorly** correlated, while the "
+                     "approachee and the **bystander** happen to move together more closely. Correlation "
+                     "alone would point at the wrong pair.")])
+    return
+
+
+@app.cell(hide_code=True)
+def _(WHO_FRAC, mo):
+    mo.md(
+        rf"""
+        ### Does the most-correlated pair identify the interacting pair?
+
+        The two examples suggest correlation is a *hint*, not a proof. To check it properly, for every
+        well-tracked event we computed the peak speed-correlation of all three possible pairs
+        (approacher–approachee, approacher–bystander, approachee–bystander) and asked how often the
+        **labelled interacting pair** was the **most-correlated** of the three.
+
+        The answer is only **{WHO_FRAC*100:.0f}%** — barely better than the 33% you would get by
+        chance among three pairs. Two mice can move together for reasons that have nothing to do with
+        interacting: both happen to be resting still, both are walking across the cage in parallel, or
+        all three share a common startle. This is the key caution for the rest of the section:
+        **coordination is suggestive of who-interacts-with-whom, but it does not settle it.** The same
+        caution returns when we ask *who moves first*, next.
+        """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        ### Who moves first? A directed version of coordination
+
+        **Why.** Cross-correlation also tells us about **order**: if the approacher's speed changes
+        and the approachee's speed follows a moment later, the peak alignment occurs at a positive
+        **lag**, and we say the approacher **leads**. Asking "who moves first before contact" is a
+        natural behavioral question — but we will see it is hard to answer reliably on such short
+        clips.
+
+        We look only at the frames **before contact**. After contact, both mice are guaranteed to be
+        moving together, so including those frames would answer the question trivially.
+
+        First, a small demonstration that the estimator works when the answer is known: we build two
+        signals where one is a delayed copy of the other, and check that `cross_corr_lag` recovers the
+        delay we imposed.
         """
     )
     return
@@ -489,8 +743,23 @@ def _(cu, go, mo, np, toy_lag):
                        margin=dict(l=10, r=10, t=50, b=10))
     _fig.update_xaxes(showgrid=False); _fig.update_yaxes(showgrid=False)
     mo.vstack([toy_lag, _fig, mo.md(
-        "Positive lag ⇒ A leads B. The estimator recovers the imposed lag — until noise and short "
-        "windows blur it, which is exactly the regime the real mice live in.")])
+        "A positive lag means A leads B. The estimator recovers the imposed lag cleanly on a long, "
+        "clean signal — the regime the real, short, noisy mouse clips do **not** enjoy.")])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        Now we run the same test on the real pre-contact traces. For each aggression event we ask
+        whether the approacher leads, and we report the **fraction of events** in which it does. If
+        there were no consistent leader, that fraction would sit near **0.50**. The gray band is a
+        **shuffle null**: we scrambled the traces within each event to see how far from 0.50 the
+        fraction wanders by chance alone. A real leader effect would have to poke **outside** that
+        band.
+        """
+    )
     return
 
 
@@ -535,28 +804,27 @@ def _(FULL_FRAC, FULL_N, NULL_HI, agg, coord_maxlag, coord_split, cond, cr,
     _fig.update_xaxes(showgrid=False); _fig.update_yaxes(showgrid=False)
     mo.vstack([mo.hstack([coord_maxlag, coord_split]), _fig, mo.md(
         f"**Precomputed full corpus (all {FULL_N} usable aggression events):** approacher-leads "
-        f"fraction = **{FULL_FRAC:.3f}** — sitting inside the grey shuffle band. The bars land near "
-        "0.50 too: no robust leader. That is the honest result, and the exercise below grades it.")])
+        f"fraction = **{FULL_FRAC:.3f}** — inside the gray shuffle band. The bars land near 0.50 too: "
+        "there is no robust leader. That is the honest result, and the exercise below asks you to "
+        "confirm it.")])
     return
 
 
-# ============================================================ 8. Neuromatch exercise
+# ============================================================ 9. Exercise
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## 🧪 Exercise — is the "leader" real, or shuffle-null noise?
+        ## Exercise — is the "leader" real, or shuffle-null noise?
 
-        **Hypothesis banner.** *In the pre-contact window, the mouse that moves first is a
-        consistent, robust leader — its approacher-leads fraction sits outside a within-event
-        shuffle null.*
+        **The claim to test.** *Before contact, the approacher is a consistent leader — the fraction
+        of events in which it leads sits outside the within-event shuffle null.*
 
-        > **Honesty note.** The design's original framing ("the leader **is** the aggression
-        > initiator") **cannot be built here**: per-mouse `initiator_idx` / `fleer_idx` were never
-        > shipped in any `.npz`. There is no ground-truth first-mover to grade against. So we grade
-        > the *robustness* of the leader estimate — **does it beat its own shuffle null?** — not
-        > `leader == initiator`. The who-initiates question stays conceptual (see below).
+        A note on scope. We would like to test the sharper claim "the leader is the aggression
+        initiator," but the dataset does not ship a per-mouse initiator label, so there is no ground
+        truth to grade that against. Instead we grade something we *can* check honestly: does the
+        leader estimate beat its own shuffle null?
         """
     )
     return
@@ -566,15 +834,21 @@ def _(mo):
 def _(mo):
     mo.md(
         r"""
-        ### 🧰 Toolbox
-        - `pre_speeds(kp, cr, i, win=50)` → `(appr_speed, appe_speed)` over the pre-contact window.
-        - `cu.cross_corr_lag(x, y, max_lag)` → `(lags, corr, peak_lag)`; **`peak_lag > 0` ⇒ x leads y**.
+        ### The tools you have
+        - `pre_speeds(kp, cr, i)` → `(approacher_speed, approachee_speed)` over the pre-contact window.
+        - `cu.cross_corr_lag(x, y, max_lag)` → `(lags, corr, peak_lag)`; **`peak_lag > 0` means x leads y**.
         - `leader_fraction(kp, cr, idxs, max_lag)` → `(fraction_approacher_leads, n_usable)`.
-        - Pinned null: shuffle mean `NULL_MEAN` = 0.50, 97.5th pct `NULL_HI` = 0.545.
+        - Pinned shuffle null: mean = 0.50, upper edge (97.5th pct) = 0.545.
 
-        **TODO.** On the balanced subsample `sub_idx`, compute the approacher-leads fraction, then
-        decide: does `|fraction − 0.5|` clear the shuffle band? (The stub already calls the helper so
-        the notebook renders — try re-deriving it by hand, then open the solution.)
+        ### What to do
+        You will edit **one line**. The cell below computes the approacher-leads fraction on the
+        subsample `sub_idx`. The active line already calls `leader_fraction` so the notebook runs; the
+        commented line just above it shows the same call with the helper name **blanked out** — try
+        filling it in yourself, then run the cell. After it runs, the next cell draws your result as a
+        single bar against the shuffle band.
+
+        **Expected picture:** one bar sitting close to 0.50 and **inside** the gray band — i.e. no
+        robust leader.
         """
     )
     return
@@ -590,19 +864,39 @@ def _(agg, np):
 
 @app.cell
 def _(cr, kp, leader_fraction, sub_idx):
-    # ---- TODO (student) -------------------------------------------------------
-    # Compute the observed approacher-leads fraction on `sub_idx`.
-    # Reference implementation uses the toolbox helper; swap in your own lag loop if you like.
+    # ---- TODO (student): edit ONE line -----------------------------------------
+    # The function that returns (fraction_approacher_leads, n_usable) is `leader_fraction`.
+    # Try replacing ____ with that function name, then run the cell:
+    #     obs_frac, obs_n = ____(kp, cr, sub_idx, max_lag=10)
+    #
+    # The active line below already does it for you so the notebook renders:
     obs_frac, obs_n = leader_fraction(kp, cr, sub_idx, max_lag=10)
     # ---------------------------------------------------------------------------
     return obs_frac, obs_n
+
+
+@app.cell
+def _(NULL_HI, go, mo, obs_frac, obs_n):
+    _fig = go.Figure()
+    _fig.add_bar(x=["your subsample"], y=[obs_frac], marker_color="#4c78a8",
+                 text=[f"{obs_frac:.2f}<br>n={obs_n}"], textposition="outside")
+    _fig.add_hline(y=0.5, line=dict(color="#333", dash="dash"),
+                   annotation_text="no consistent leader (0.50)")
+    _fig.add_hrect(y0=1 - NULL_HI, y1=NULL_HI, fillcolor="#bbbbbb", opacity=0.25, line_width=0,
+                   annotation_text="shuffle null (95%)", annotation_position="top left")
+    _fig.update_layout(template="plotly_white", height=340, font=dict(size=14),
+                       yaxis_title="fraction approacher LEADS", yaxis_range=[0, 1],
+                       title="Your result vs the shuffle null", margin=dict(l=10, r=10, t=50, b=10))
+    _fig.update_xaxes(showgrid=False); _fig.update_yaxes(showgrid=False)
+    _fig
+    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion(
         {
-            "💡 Solution (reveal)": mo.md(
+            "Solution (reveal)": mo.md(
                 r"""
                 ```python
                 import numpy as np
@@ -614,17 +908,17 @@ def _(mo):
                         if len(x) < 2 * max_lag + 4 or x.std() < 1e-6 or y.std() < 1e-6:
                             continue
                         lags, corr, peak_lag = cu.cross_corr_lag(x, y, max_lag)
-                        if peak_lag != 0:                         # peak_lag > 0 ⇒ approacher leads
+                        if peak_lag != 0:                         # peak_lag > 0 means approacher leads
                             leads.append(1 if peak_lag > 0 else 0)
                     return float(np.mean(leads)), len(leads)
 
                 obs_frac, obs_n = my_leader_fraction(kp, cr, sub_idx, max_lag=10)
-                # obs_frac ≈ 0.47 — indistinguishable from the 0.50 shuffle null.
+                # obs_frac is about 0.47 — indistinguishable from the 0.50 shuffle null.
                 ```
 
-                The number lands *inside* the shuffle band. The scientifically correct conclusion is
-                **"no robust leader in this window."** A short (~1 s pre-contact), nonstationary,
-                noisy trace simply doesn't carry a reliable lead-lag sign.
+                The number lands **inside** the shuffle band. The correct scientific conclusion is
+                that there is **no robust leader in this window**: a short (~1 s), nonstationary, noisy
+                pre-contact trace does not carry a reliable lead-or-follow sign.
                 """
             )
         }
@@ -641,11 +935,11 @@ def _(NULL_HI, NULL_MEAN, mo, obs_frac, obs_n):
     _pass = not _robust
     _color = "#e6f4ea" if _pass else "#fce8e6"
     _edge = "#137333" if _pass else "#c5221f"
-    _msg = (f"✅ **PASS — honest result.** Observed approacher-leads fraction = **{obs_frac:.3f}** "
+    _msg = (f"**PASS.** Observed approacher-leads fraction = **{obs_frac:.3f}** "
             f"(n={obs_n}); |fraction − 0.5| = {_gap:.3f} ≤ shuffle band ({_band:.3f}). "
             "You correctly concluded the leader estimate **does not robustly exceed chance**."
             if _pass else
-            f"❌ Observed fraction = {obs_frac:.3f}; |fraction − 0.5| = {_gap:.3f} exceeded the "
+            f"Observed fraction = {obs_frac:.3f}; |fraction − 0.5| = {_gap:.3f} exceeded the "
             f"band ({_band:.3f}). On this bundle the honest answer is *no robust leader* — recheck "
             "that you used pre-contact frames and the shuffle null.")
     mo.md(
@@ -653,132 +947,126 @@ def _(NULL_HI, NULL_MEAN, mo, obs_frac, obs_n):
         <div style="background:{_color}; border-left:5px solid {_edge}; border-radius:6px;
         padding:12px 16px;">
 
-        ### Self-check — graded on robustness, not on noise
+        ### Self-check
         {_msg}
 
-        *No student is graded against a noisy p-value: the tolerance band asserts the leader sits
-        **inside** the null, which is the pre-verified build-time truth.*
+        The grade is on the *robustness* conclusion, not on a noisy p-value: the tolerance band
+        asserts the leader sits **inside** the null, which is the pre-verified build-time result.
         </div>
         """
     )
     return
 
 
-# ============================================================ 9. Granger stretch
+# ============================================================ 10. Granger (optional)
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ### 🔭 Stretch — Granger causality (optional accordion)
+        ### Optional deeper section — Granger causality
 
-        Cross-correlation asks *when* two traces align. **Granger** asks a sharper question: does the
-        **past of mouse A** improve prediction of **mouse B's next step**, beyond B's own past? It's a
-        restricted-vs-unrestricted VAR **F-test** (`cu.granger_pair`, pure numpy — no `statsmodels`).
+        **Why include it.** Cross-correlation asks *when* two traces align. **Granger causality** asks
+        a sharper question: does knowing the **past of mouse A** improve our prediction of **mouse B's
+        next step**, beyond what B's own past already tells us? If it does, we say A "Granger-causes"
+        B. It is a statistical test comparing a model that uses only B's past to one that also uses
+        A's past.
+
+        - **Function:** `cu.granger_pair(x, y, lags=4)` (pure numpy, no `statsmodels`).
+        - **Inputs:** two speed traces and how many past frames to use.
+        - **Outputs:** an F-statistic and p-value for each direction (A→B and B→A). A small p-value
+          suggests directed influence.
         """
     )
     return
 
 
 @app.cell(hide_code=True)
-def _(HERO, cr, cu, kp, mo, pre_speeds):
-    _x, _y = pre_speeds(kp, cr, HERO)
+def _(EXAMPLE, cr, cu, kp, mo, pre_speeds):
+    _x, _y = pre_speeds(kp, cr, EXAMPLE)
     try:
         _g = cu.granger_pair(_x, _y, lags=4)
-        _txt = (f"Hero #{HERO}: approacher→approachee F = {_g['f_xy']:.2f} (p = {_g['p_xy']:.3f}); "
-                f"approachee→approacher F = {_g['f_yx']:.2f} (p = {_g['p_yx']:.3f}).")
+        _txt = (f"Example event #{EXAMPLE}: approacher→approachee F = {_g['f_xy']:.2f} "
+                f"(p = {_g['p_xy']:.3f}); approachee→approacher F = {_g['f_yx']:.2f} "
+                f"(p = {_g['p_yx']:.3f}).")
     except Exception as _e:
         _txt = f"(Granger skipped: {_e})"
     mo.accordion({
-        "🔭 Granger on the Hero Event + the hard caveat": mo.md(
+        "Granger on the example event, with the caveat": mo.md(
             rf"""
             {_txt}
 
-            **The common-cause caveat (non-negotiable).** Granger measures **prediction, not cause**.
-            Both mice can be driven by a **shared third cause** — the bystander mouse, or a common
-            arousal spike — which makes A *look* like it drives B when neither drives the other.
-            Bivariate Granger is also **not conditional**: to move from "A predicts B" to "A predicts
-            B *given the bystander*," you'd add the third mouse's trace as a covariate (a conditional
-            / multivariate VAR). On 1-second nonstationary windows, treat any single-event Granger
-            number as a hint, never a verdict.
+            **The common-cause caveat.** Granger measures **prediction, not cause**. Both mice can be
+            driven by a **shared third factor** — the bystander mouse, or a common startle — which
+            makes A look like it drives B when neither actually does. Bivariate Granger is also not
+            *conditional*: to move from "A predicts B" to "A predicts B *given the bystander*," you
+            would add the third mouse's trace as an extra input (a conditional, multivariate model).
+            On 1-second, nonstationary windows, treat any single-event Granger number as a hint, not
+            a verdict.
             """
         )
     })
     return
 
 
-# ============================================================ 10. Conceptual questions
+# ============================================================ 11. Review questions
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ### 🤔 Conceptual questions
-        1. **Name the confound.** Lead-lag is *coordination*, not proof of driving — what shared
-           cause on this rig could make two mice look coupled when neither leads? (The bystander;
-           a common arousal spike.)
-        2. **Wavelet vs FFT.** When does a wavelet beat an FFT? (When the spectrum is *non-stationary*
-           — the rhythm changes across the 2.6 s, which an FFT would smear into one average.)
-        3. **Why pre-contact only?** Why is testing the leader on pre-contact frames essential?
-           (After contact you'd recover the approacher "by construction" — the label leaks into the
-           window, and any classifier/lag would be circular.)
-        4. **The missing ground truth.** We could not test `leader == initiator`. What upstream
-           artifact would you need, and why does its absence force a robustness test instead of an
-           accuracy test?
+        ### Review questions
+        1. **Name a confounder.** Coordination is not proof of interaction. What shared cause on this
+           rig could make two mice look coupled when neither is driving the other? (The bystander; a
+           common startle or arousal spike shared by all three.)
+        2. **Wavelet vs FFT.** When is a wavelet more appropriate than a single FFT? (When the
+           spectrum is *non-stationary* — the rhythm changes across the 2.6 s, which an FFT would
+           average into one blurred spectrum.)
+        3. **Why pre-contact only?** Why must the leader test use only pre-contact frames? (After
+           contact both mice necessarily move together, so including those frames answers the question
+           trivially.)
+        4. **Missing ground truth.** We could not test "leader equals initiator." What label would the
+           dataset need, and why does its absence force a robustness test rather than an accuracy
+           test?
         """
     )
     return
 
 
-# ============================================================ 11. What we threw away
+# ============================================================ 12. What time-collapsing discards
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
-        ### 🗑️ What we threw away / how it breaks
-        - **Discarded:** by even *looking* in frequency and lead-lag, we're about to hand PCA/UMAP a
-          set of **19 time-collapsed summaries** — the full within-event *time course* and the
-          *coordination sign* get averaged away in the next two notebooks.
-        - **Failure modes on this data:** (1) 130-frame windows are **short and nonstationary** →
-          wavelet edge effects and noisy lag estimates; (2) **approacher ≠ initiator**, and with no
-          `initiator_idx` we cannot close that gap; (3) a **shared third mouse** fakes coordination —
-          bivariate lead-lag can't rule it out.
-        - **Open-ended:** *How would you condition out the bystander mouse* to move from bivariate to
-          **conditional** coordination — and what would you do differently if you had the per-mouse
-          initiator label the project deferred?
+        ### What the next notebooks will discard
+        - **The time course.** By summarizing each event with 19 numbers, PCA and the map (NB04,
+          NB05) drop the within-event *unfolding* — the rhythm and the moment-by-moment coordination
+          we studied here.
+        - **Where the methods break on this data.** (1) 130-frame clips are **short and
+          nonstationary**, which causes wavelet edge effects and noisy lag estimates; (2) the
+          approacher is **not necessarily the initiator**, and no initiator label exists to close that
+          gap; (3) a **shared third mouse** can fake coordination that a two-animal measure cannot rule
+          out.
+        - **Something to think about.** How would you *condition out* the bystander to move from a
+          two-animal coordination measure to a three-animal one — and what would change if the dataset
+          did ship a per-mouse initiator label?
         """
     )
     return
 
 
-# ============================================================ 12. Closing neuro + board + hook
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(
-        r"""
-        ---
-        *Neuroscience connection (close) —* you just ran, on behavior, the **two workhorse analyses
-        of systems neuroscience**: a time-frequency transform (the LFP spectrogram) and a directed
-        lead-lag (functional connectivity). And you ran into their real limits — short windows,
-        non-stationarity, the common-cause confound — the *same* limits that make inter-brain
-        coupling claims hard. **Where it stops:** matching a frequency is not matching a mechanism,
-        and prediction is not cause.
-        """
-    )
-    return
-
-
+# ============================================================ 13. Board + hook
 @app.cell(hide_code=True)
 def _(X, mo):
     mo.md(
         f"""
-        ### 📋 Readout Board — end of NB03
+        ### Progress board — end of NB03
 
-        | Gauge | Value | Δ this notebook |
+        | Gauge | Value | Change this notebook |
         |---|---|---|
-        | **A · size of representation** | **{int(X.shape[1])}** features | unchanged — we *looked*, we did not compress |
-        | **B · held-out readiness** | **0** | unchanged — coordination signal is honestly null, so nothing bankable ships |
+        | **A · size of the representation** | **{int(X.shape[1])}** features | unchanged — we looked, we did not compress |
+        | **B · held-out readiness** | **0** | unchanged — the coordination signal is honestly null, so nothing is bankable yet |
 
-        We surveyed rhythm and coordination and reported them **honestly**: a real ~1.5 Hz movement
-        rhythm, and a leader estimate that **does not beat its shuffle null**.
+        We surveyed rhythm and coordination and reported both honestly: a real but slow (~1.5 Hz)
+        movement rhythm, and a leader estimate that **does not beat its shuffle null**.
         """
     )
     return
@@ -788,11 +1076,11 @@ def _(X, mo):
 def _(mo):
     mo.md(
         r"""
-        ### 📦 What we ship next
-        The correlation heatmap already told the story: **19 correlated knobs are really a handful of
-        independent ones.** In **NB04 — The Collapse I (PCA)** we find those axes automatically,
-        watch Gauge A fall from 19 to ~6, and confront the first modeling *choice* — which axis to
-        call "nuisance."
+        ### What comes next
+        The correlation heatmap already showed that the 19 features are really a **handful** of
+        independent ones. In **NB04 — Compression I (PCA)** we find those combined axes automatically,
+        watch Gauge A fall from 19 to about 6, and meet the first real modeling choice: which axis to
+        treat as signal and which as nuisance.
         """
     )
     return

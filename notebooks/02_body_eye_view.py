@@ -54,26 +54,47 @@ def _():
 def _(mo):
     mo.md(
         r"""
-        # NB02 · The Body's-Eye View
+        # NB02 · The body-centered (egocentric) view
 
-        > **FROM: Circuit Team → TO: Behavior Team**
-        >
-        > Arena coordinates are useless to us. A fight in the top-left corner and a fight in the
-        > bottom-right corner are the *same behavior*, but their raw pixel coordinates share nothing.
-        > Before we time-align a single opto trial, **re-express every event the way the brain
-        > does — relative to the animal itself.** Ship us a compact, arena-invariant description of
-        > the social geometry: one vector per event that a fight looks like no matter where, or which
-        > way, it happens.
-        >
-        > **The deliverable:** the 19 body-frame features, `X (1500, 19)`.
-        > **It unblocks:** every downstream analysis (PCA, the map, the decoder) — they all read `X`, not pixels.
-        > **Today's lab-meeting question:** *After we strip out where-in-the-cage and which-way-facing,
-        > what social geometry is left — and does aggression arrive from a different **direction**?*
+        ## Why this step matters
 
-        You just watched (NB01) that the pose is trustworthy. Now you choose a **point of view**. The
-        same choice the brain makes: retrosplenial and parietal cortex convert a self-centered view
-        into a stable frame, while place, grid, and head-direction cells hold the world-anchored map
-        at the other end. Today you build the self-centered half by hand.
+        You are studying social behavior. A behavior — an attack, a sniff, a chase — is the *same
+        behavior* whether it happens in the top-left corner of the cage or the bottom-right, and
+        whether the two mice face north or south. Raw pixel coordinates do not capture that: the same
+        behavior in two locations produces completely different numbers, because the numbers describe
+        *where in the arena* the mice are, not *what they are doing to each other*.
+
+        Before we can compare events, describe them, or later train a classifier, we need to remove
+        two things that are not part of the behavior: **where in the cage** the event happened, and
+        **which way the animals happened to be facing in the arena**. What is left is the part that is
+        genuinely social — the position and motion of each mouse *relative to the others*.
+
+        ## Definitions (read these first)
+
+        - **Keypoint** — a single tracked body point (nose, head, tail-base, …), stored as an
+          `(x, y)` pixel location in the camera image. NB01 produced these.
+        - **Body frame** (also called **egocentric coordinates**) — coordinates measured relative to
+          one animal's own body: put the origin at that animal's tail-base, and rotate so the
+          direction it faces points straight up (+y). In a body frame you describe the scene as
+          "the other mouse is ahead of me and slightly to my left," instead of "the other mouse is at
+          pixel (812, 344)."
+        - **Invariant** — a number that does **not** change when you move or rotate the whole scene.
+          A distance between two mice is invariant; a mouse's absolute pixel position is not.
+
+        ## What we will do (the method)
+
+        1. Take one event (all three mice, every frame) in raw arena coordinates.
+        2. **Translate** so the approaching mouse's tail-base sits at the origin, then **rotate** so
+           that mouse faces +y. This is the body-centered (egocentric) transform.
+        3. Summarize the transformed event into **19 interpretable numbers** — speeds, distances, and
+           facing angles — that are the same no matter where or which way the event happened.
+
+        The reason we bother: behaviors are rotationally invariant. A mouse does not care about the
+        arena's orientation; the social geometry that matters is relative to the animal. (This kind of
+        relative, body-centered description is also how neuroscientists quantify social position.)
+
+        **Deliverable of this notebook:** the feature matrix `X (1500, 19)` — one 19-number vector per
+        event. Every later notebook reads `X`, not pixels.
         """
     )
     return
@@ -92,51 +113,53 @@ def _(ROOT, cu, np):
     cage = der["cage"]
     feat_names = [str(f) for f in cu.FEATURE_NAMES]
 
-    # Hero Event: the design doc names #742, but in the SHIPPED bundle index 742 is a cage-12,
-    # non-aggression event. We use the cleanest cage-15 (male) aggression event instead: idx 909.
-    HERO = 909
-    hero_hex = tuple(cu.RANK_HEX.get(int(r), cu.RANK_HEX[0]) for r in ranks[HERO])
+    # Running example event. The design doc named #742, but in the shipped bundle index 742 is a
+    # cage-12 non-aggression event; we use the cleanest cage-15 (male) aggression event instead.
+    EX = 909
+    ex_hex = tuple(cu.RANK_HEX.get(int(r), cu.RANK_HEX[0]) for r in ranks[EX])
 
     _board = pd.read_csv(cu.data_path("data/readout_board.csv", ROOT))
     board = _board
-    return HERO, X, agg, board, cage, contact, ev, feat_names, hero_hex, kp, ranks
+    return EX, X, agg, board, cage, contact, ev, ex_hex, feat_names, kp, ranks
 
 
 @app.cell(hide_code=True)
 def _(board, go):
-    # Readout Board helper — two gauges. Gauge A = size of the representation (falls through Phase 1);
-    # Gauge B = held-out readiness (rises in Phase 2, still 0 here). Degrades gracefully if a row is
-    # missing from readout_board.csv.
+    # Readout Board — two gauges. Gauge A = size of the representation (falls through Phase 1);
+    # Gauge B = held-out readiness (rises in Phase 2, still 0 here). Degrades gracefully if a
+    # board row is missing. FIX: mode="number" only (no delta). A delta against the 11,700 raw
+    # baseline rendered a confusing NEGATIVE ("-11,681"); the "was 11,700 raw" context now lives
+    # in the title text instead. Height/margin raised so the two-line titles do not overlap.
     def readout_fig(gauge_a_value, title):
         def _bench(gauge, nb):
             _m = board[(board["gauge"] == gauge) & (board["notebook"] == nb)]
             return float(_m["value"].iloc[0]) if len(_m) else None
-        a_bench = _bench("A", "NB02")           # 19 features
-        raw_bench = _bench("A", "NB01")          # 11,700 raw numbers
+        raw_bench = _bench("A", "NB01")          # 11,700 raw numbers, the Phase-1 starting point
+        raw_txt = int(raw_bench) if raw_bench is not None else 11700
         fig = go.Figure()
         fig.add_trace(go.Indicator(
-            mode="number+delta", value=gauge_a_value,
-            number={"valueformat": ",.0f", "suffix": " numbers"},
-            delta={"reference": raw_bench or 11700, "relative": False, "valueformat": ",.0f"},
-            title={"text": "<b>Gauge A</b><br><span style='font-size:0.8em'>size of representation "
-                           f"(was {int(raw_bench or 11700):,} raw)</span>"},
+            mode="number", value=gauge_a_value,
+            number={"valueformat": ",.0f", "suffix": " numbers", "font": {"size": 44}},
+            title={"text": "<b>Gauge A</b> · size of representation<br>"
+                           "<span style='font-size:0.8em;color:#888'>"
+                           f"now vs {raw_txt:,} raw (falls through Phase 1)</span>"},
             domain={"row": 0, "column": 0}))
         fig.add_trace(go.Indicator(
             mode="number", value=0,
-            number={"valueformat": ".0f", "suffix": "  (rises in Phase 2)"},
-            title={"text": "<b>Gauge B</b><br><span style='font-size:0.8em'>held-out readiness — "
-                           "not started</span>"},
+            number={"valueformat": ".0f", "suffix": "  (rises in Phase 2)", "font": {"size": 44}},
+            title={"text": "<b>Gauge B</b> · held-out readiness<br>"
+                           "<span style='font-size:0.8em;color:#888'>not started</span>"},
             domain={"row": 0, "column": 1}))
         fig.update_layout(grid={"rows": 1, "columns": 2, "pattern": "independent"},
-                          template="plotly_white", height=170, title=title,
-                          margin=dict(l=20, r=20, t=60, b=10))
+                          template="plotly_white", height=230, title=title,
+                          margin=dict(l=20, r=20, t=95, b=20))
         return fig
     return (readout_fig,)
 
 
 @app.cell(hide_code=True)
 def _(X, readout_fig):
-    # student's freshly-computed Gauge A number = the width of the feature matrix they will build.
+    # Gauge A now = the width of the feature matrix we are about to build (19).
     readout_fig(float(X.shape[1]), "Readout Board — start of NB02")
     return
 
@@ -146,16 +169,24 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 1. The rotation toy — face the mouse up, by hand
+        ## 1. Rotating a frame by hand
 
-        The whole trick is two moves: **translate** so the focal mouse's tail-base (TTI) sits at the
-        origin, then **rotate** so its heading (TTI → head) points straight up, at **+y**. Do the
-        second move by hand first.
+        The whole transform is two moves: **translate** so the focal mouse's tail-base (node `TTI`)
+        sits at the origin, then **rotate** so its heading (tail-base → head) points straight up (+y).
+        The second move — rotation — is worth doing by hand once so it is not a black box.
 
-        Below is a little 5-point mouse pointing in some arbitrary arena direction. Drag the slider to
-        **spin the paper** until it faces up. There's no algebra here — you're discovering the heading
-        angle the way you'd turn a map to match the road. (The 2×2 rotation matrix that does this
-        automatically is in the accordion.)
+        Below is one real frame of our example event: all three mice, in raw arena coordinates,
+        centered on the field for display. Drag the slider to rotate the **entire field** by an angle
+        β. Watch two things:
+
+        - The **numbers on the right** update live: the 2×2 rotation matrix `R(β)`, and one sample
+          keypoint's coordinates before and after rotation.
+        - The **shape never distorts.** Rotation is rigid: every distance and every angle *between*
+          the mice stays exactly the same. Only the orientation of the whole picture on the page
+          changes. That rigidity is the reason this operation is safe to apply to behavior — it moves
+          the frame of reference without altering the behavior.
+
+        Colors are by rank throughout the course: **Dom = red, Int = blue, Sub = green.**
         """
     )
     return
@@ -163,64 +194,97 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    toy_angle = mo.ui.slider(-180, 180, value=0, step=1,
-                             label="your rotation β (degrees)", debounce=True, full_width=True)
+    toy_angle = mo.ui.slider(-180, 180, value=0, step=5,
+                             label="rotation β applied to the whole field (degrees)",
+                             debounce=True, full_width=True)
     return (toy_angle,)
 
 
 @app.cell
-def _(go, mo, np, toy_angle):
-    # A 5-node toy "mouse" in local coords (facing +x), placed at a hidden arena heading.
-    _shape = np.array([[2.0, 0.0], [1.0, 0.0], [-1.2, 0.0],   # nose, head, TTI
-                       [1.3, 0.55], [1.3, -0.55]])            # L_ear, R_ear
-    _a0 = np.deg2rad(37.0)                                    # hidden arena heading
-    _R0 = np.array([[np.cos(_a0), -np.sin(_a0)], [np.sin(_a0), np.cos(_a0)]])
-    _arena = _shape @ _R0.T
-    _b = np.deg2rad(toy_angle.value)
-    _Rb = np.array([[np.cos(_b), -np.sin(_b)], [np.sin(_b), np.cos(_b)]])
-    _pts = _arena @ _Rb.T
-    # heading after the student's rotation (TTI[2] -> head[1]); target = +y (90 deg)
-    _h = _pts[1] - _pts[2]
-    _ang = np.rad2deg(np.arctan2(_h[1], _h[0]))
-    _resid = ((_ang - 90.0 + 180) % 360) - 180
-    _ok = abs(_resid) < 4.0
+def _(EX, contact, cu, ex_hex, go, kp, mo, np, toy_angle):
+    # Rotate ONE frame of the whole interaction (all three mice) by the slider angle β, so the
+    # student sees the entire field turn as a rigid body.
+    _t = int(contact[EX])
+    _field = kp[EX][_t].astype(float)                       # (3, 15, 2) — one frame, three mice
+    _pts = _field.reshape(-1, 2)
+    _c = np.nanmean(_pts[np.isfinite(_pts).all(1)], axis=0)  # field center, for in-place rotation
+    _centered = _field - _c
+    _beta = np.deg2rad(toy_angle.value)
+    _R = np.array([[np.cos(_beta), -np.sin(_beta)], [np.sin(_beta), np.cos(_beta)]])
+    _rot = np.einsum("ij,mnj->mni", _R, _centered)
+
     _fig = go.Figure()
-    _edges = [(0, 1), (1, 2), (1, 3), (1, 4)]
-    for _u, _v in _edges:
-        _fig.add_scatter(x=[_pts[_u, 0], _pts[_v, 0]], y=[_pts[_u, 1], _pts[_v, 1]],
-                         mode="lines", line=dict(color="#d62728", width=3), showlegend=False)
-    _fig.add_scatter(x=_pts[:, 0], y=_pts[:, 1], mode="markers",
-                     marker=dict(color="#d62728", size=9), showlegend=False)
-    _fig.add_annotation(x=0, y=2.6, ax=0, ay=0, xref="x", yref="y", axref="x", ayref="y",
-                        showarrow=True, arrowhead=3, arrowwidth=2, arrowcolor="#2ca02c")
-    _fig.add_annotation(x=0.15, y=2.7, text="+y (face here)", showarrow=False,
-                        font=dict(color="#2ca02c", size=13))
-    _fig.update_xaxes(range=[-3, 3], zeroline=True, showgrid=False)
-    _fig.update_yaxes(range=[-3, 3], zeroline=True, showgrid=False, scaleanchor="x", scaleratio=1)
-    _fig.update_layout(template="plotly_white", height=440, margin=dict(l=10, r=10, t=50, b=10),
-                       title=("✅ facing +y! heading is now %.0f°" % _ang) if _ok
-                             else ("heading = %.0f°  (need 90°, off by %.0f°)" % (_ang, _resid)))
-    mo.vstack([toy_angle, _fig])
+    for _m in range(3):
+        _mk = _rot[_m]
+        _ok = np.isfinite(_mk).all(1)
+        _ex, _ey = [], []
+        for _u, _v in cu.SKELETON_EDGES:
+            if _ok[_u] and _ok[_v]:
+                _ex += [_mk[_u, 0], _mk[_v, 0], None]
+                _ey += [_mk[_u, 1], _mk[_v, 1], None]
+        _fig.add_scatter(x=_ex, y=_ey, mode="lines",
+                         line=dict(color=ex_hex[_m], width=2), showlegend=False, hoverinfo="skip")
+        _fig.add_scatter(x=_mk[_ok, 0], y=_mk[_ok, 1], mode="markers",
+                         marker=dict(color=ex_hex[_m], size=6), showlegend=False, hoverinfo="skip")
+    _fig.update_xaxes(range=[-260, 260], showgrid=False, zeroline=True)
+    _fig.update_yaxes(range=[260, -260], showgrid=False, zeroline=True, scaleanchor="x", scaleratio=1)
+    _fig.update_layout(template="plotly_white", height=460, margin=dict(l=10, r=10, t=44, b=10),
+                       title=f"whole field rotated by β = {toy_angle.value}°")
+
+    # live numeric readout beside the plot
+    _in = _centered[0, cu.HEAD]                             # approacher head, centered (input)
+    _out = _rot[0, cu.HEAD]                                 # approacher head, after rotation (output)
+    _readout = mo.md(
+        f"""
+        **Rotation matrix `R(β)`, β = {toy_angle.value}°**
+
+        |  |  |
+        |---:|---:|
+        | {_R[0, 0]:+.3f} | {_R[0, 1]:+.3f} |
+        | {_R[1, 0]:+.3f} | {_R[1, 1]:+.3f} |
+
+        Each keypoint `(x, y)` becomes `R(β)·(x, y)`.
+
+        **Approacher head keypoint**
+
+        before: ({_in[0]:+.1f}, {_in[1]:+.1f})
+        after:  &nbsp;({_out[0]:+.1f}, {_out[1]:+.1f})
+
+        The distance from this point to the origin is unchanged:
+        {np.linalg.norm(_in):.1f} → {np.linalg.norm(_out):.1f} px. That is what "rigid" means — every
+        point stays the same distance from the center; only the direction rotates.
+        """
+    )
+    mo.vstack([toy_angle, mo.hstack([_fig, _readout], widths=[2, 1])])
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "Show me the matrix (what the slider is really doing)": mo.md(
+        "How the code picks β automatically": mo.md(
             r"""
-            A point $\mathbf{p}=(x,y)$ rotated by angle $\beta$ becomes $\mathbf{p}' = R(\beta)\,\mathbf{p}$ with
+            You do not have to guess β. The code reads the approacher's heading angle straight off the
+            skeleton and rotates by exactly the amount that lands it on +y.
 
-            $$R(\beta)=\begin{bmatrix}\cos\beta & -\sin\beta\\[2pt]\sin\beta & \cos\beta\end{bmatrix}.$$
+            - **Heading angle** of the approacher:
+              $\varphi=\operatorname{atan2}(\text{head}_y-\text{TTI}_y,\ \text{head}_x-\text{TTI}_x)$.
+            - **Rotation needed** to send that heading to straight up:
+              $\alpha=\tfrac{\pi}{2}-\varphi$.
+            - **Rotation matrix:**
+              $R(\alpha)=\begin{bmatrix}\cos\alpha & -\sin\alpha\\ \sin\alpha & \cos\alpha\end{bmatrix}$.
 
-            The engine doesn't make you guess $\beta$. It reads the heading angle
-            $\varphi=\operatorname{atan2}(\text{head}_y-\text{TTI}_y,\ \text{head}_x-\text{TTI}_x)$
-            straight off the skeleton, then rotates by $\alpha=\tfrac{\pi}{2}-\varphi$ so the heading
-            lands on $+y$. That's exactly `cu._anchor_transform`: it also returns the **center** (the
-            focal TTI) so the full move is *translate to origin, then rotate*:
-            $\;\mathbf{p}' = R(\alpha)\,(\mathbf{p}-\mathbf{c})$. `cu.allocentricize` applies that same
-            $(\mathbf{c}, R)$ — computed once from the approacher — to **all three** mice, so the whole
-            social scene is re-expressed in the approacher's body frame.
+            `cu._anchor_transform` returns this $R$ together with the **center** (the approacher's
+            tail-base), so the full move is *translate to origin, then rotate*:
+            $\mathbf{p}' = R(\alpha)\,(\mathbf{p}-\mathbf{c})$. `cu.allocentricize` then applies that
+            same $(\mathbf{c}, R)$ — computed once from the approacher — to **all three** mice, so the
+            entire social scene is re-expressed in the approacher's body frame.
+
+            **`cu.allocentricize`** · *purpose:* put an event in the approacher's body frame ·
+            *input:* `kp_event` of shape `(T, 3, 15, 2)` in arena pixels ·
+            *output:* the same-shaped array, translated and rotated. If the approacher's head or
+            tail-base is missing on every frame it cannot find a heading and returns the event
+            unchanged.
             """
         )
     })
@@ -228,45 +292,62 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(HERO, cage, mo, ranks):
-    mo.md(
-        f"""
-        ---
-        ## 2. Apply it to the Hero Event
+def _(EX, cage, contact, cu, kp, mo, ranks):
+    _rn = ["unknown", "Dom", "Int", "Sub"]
+    _gif = cu.event_gif_bytes(kp[EX], ranks[EX], contact_rel=int(contact[EX]), cell=200, fps=20)
+    mo.vstack([
+        mo.md(
+            f"""
+            ---
+            ## 2. Applying the transform to the example event
 
-        **Hero Event #{HERO}** — Cage {int(cage[HERO])}, male, a real aggression approach
-        (approacher rank = **{['?','Dom','Mid','Sub'][int(ranks[HERO][0])]}**,
-        approachee = **{['?','Dom','Mid','Sub'][int(ranks[HERO][1])]}**). On the **left** is the raw
-        arena view — the mouse is wherever it happened to be in the cage. On the **right** is the same
-        frame after `allocentricize`: the approacher's tail-base is pinned at the origin, facing up.
-        Everything that moves on the right is *social geometry* — where the other two mice are
-        **relative to the approacher**. Drag through the frames and watch the approachee close in.
-        """
-    )
+            Our example is **event {EX}** — Cage {int(cage[EX])}, male, a real aggression approach.
+            We label the two interacting mice plainly: the **approacher**
+            (rank **{_rn[int(ranks[EX][0])]}**) and the **approachee**
+            (rank **{_rn[int(ranks[EX][1])]}**). A third **bystander** mouse
+            (rank **{_rn[int(ranks[EX][2])]}**) is also present.
+
+            First, watch the behavior itself. The clip below is the raw event: the white arrow points
+            approacher → approachee, and the red dot marks contact onset. Because we learn behavior by
+            seeing it, most methods in this course will be checked against clips like this.
+            """
+        ),
+        mo.Html('<div style="text-align:center">' + cu.gif_img_html(_gif, width=240) + "</div>"),
+        mo.md(
+            """
+            Now compare the two coordinate frames side by side. On the **left** is the raw arena view —
+            the mice are wherever they happened to be in the cage. On the **right** is the same frame
+            after `allocentricize`: the approacher's tail-base is pinned at the origin (black ✕) and
+            the approacher faces up. Everything that moves on the right is **social geometry** — where
+            the other two mice sit *relative to the approacher*. Drag the frame slider and watch the
+            approachee close in.
+            """
+        ),
+    ])
     return
 
 
 @app.cell
-def _(contact, HERO, mo, kp):
-    _T = kp[HERO].shape[0]
-    hero_frame = mo.ui.slider(0, _T - 1, value=int(contact[HERO]), step=1,
-                              label="frame (red dot = contact onset)", debounce=True, full_width=True)
-    return (hero_frame,)
+def _(contact, EX, mo, kp):
+    _T = kp[EX].shape[0]
+    ex_frame = mo.ui.slider(0, _T - 1, value=int(contact[EX]), step=1,
+                            label="frame (red dot = contact onset)", debounce=True, full_width=True)
+    return (ex_frame,)
 
 
 @app.cell
-def _(HERO, cu, hero_frame, hero_hex, kp, mo, np):
-    _raw = kp[HERO].astype(float)
+def _(EX, cu, ex_frame, ex_hex, kp, mo, np):
+    _raw = kp[EX].astype(float)
     _body = cu.allocentricize(_raw)
-    _t = hero_frame.value
-    _fig_raw = cu.skeleton_fig(_raw[_t], cu.SKELETON_EDGES, colors=hero_hex,
+    _t = ex_frame.value
+    _fig_raw = cu.skeleton_fig(_raw[_t], cu.SKELETON_EDGES, colors=ex_hex,
                                title=f"RAW arena frame {_t}", height=460)
-    _fig_body = cu.skeleton_fig(_body[_t], cu.SKELETON_EDGES, colors=hero_hex,
-                                title=f"BODY-FRAME frame {_t} (approacher ↑)", height=460)
+    _fig_body = cu.skeleton_fig(_body[_t], cu.SKELETON_EDGES, colors=ex_hex,
+                                title=f"BODY FRAME frame {_t} (approacher faces up)", height=460)
     # mark the approacher origin on the body-frame panel
     _fig_body.add_scatter(x=[0], y=[0], mode="markers",
                           marker=dict(symbol="x", size=12, color="black"), showlegend=False)
-    mo.vstack([hero_frame, mo.hstack([_fig_raw, _fig_body], widths=[1, 1])])
+    mo.vstack([ex_frame, mo.hstack([_fig_raw, _fig_body], widths=[1, 1])])
     return
 
 
@@ -275,29 +356,19 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 3. The honest terminology beat: *egocentric* vs *allocentric*
+        ## 3. Why the body frame is the right choice
 
-        The code you just called is named **`allocentricize`**, and the 19 features it produces are
-        called "allocentric" throughout this codebase. **That name is a field misnomer, and we teach it
-        openly rather than hide it.** Here is the real distinction, because it is exactly the distinction
-        the brain implements:
+        The function is named `allocentricize` in this codebase, and the 19 features are stored under
+        that name, so your code matches everyone else's. When you reason about the science, though,
+        describe it plainly for what it is: a **body-centered (egocentric) transform** — the scene is
+        expressed relative to the approacher's own body.
 
-        - **Egocentric** = *self-centered*. Positions are expressed relative to the animal's own body:
-          "the other mouse is to **my** left, ahead of **me**." What you just built — center on the
-          approacher, rotate its heading to +y — is a textbook **egocentric transform**. Retrosplenial
-          and parietal cortex do this conversion continuously.
-        - **Allocentric** = *world-centered*. Positions are expressed relative to a fixed external map:
-          "the mouse is in the **northeast** corner." **Place cells** (O'Keefe 1971), **grid cells**
-          (Hafting 2005), and **head-direction cells** (Taube 1990) hold this world-anchored map.
-
-        So the field's label is backwards from the mechanism: our transform is **egocentric**, and the
-        allocentric frame is the *other* endpoint — the world map the brain also maintains and constantly
-        converts to and from. We keep the codebase name (`allocentricize`) so your code matches everyone
-        else's, but when you reason about the science, call it what it is: **an egocentric, body-frame
-        transform.** The reason it's the right move here is subtle and important: by removing the
-        approacher's *own* arena pose (where it stands, which way it faces), you throw away everything
-        that isn't social — and what survives is pure **relative** configuration, identical for a fight
-        in any corner.
+        The point of the transform is what it *removes*. By centering on the approacher's tail-base and
+        rotating its heading to +y, we throw away the approacher's own arena pose: where it stands and
+        which way it faces in the cage. Those are not part of the behavior. What survives is the
+        **relative configuration** — how far apart the mice are, who faces whom, how the trio is
+        arranged — and that relative configuration is identical for the same behavior in any corner of
+        the cage. The next section demonstrates that invariance directly.
         """
     )
     return
@@ -305,68 +376,42 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.accordion({
-        "Deeper: the paper & where the analogy stops": mo.md(
-            r"""
-            **Reference frames in the brain.** O'Keefe & Dostrovsky 1971 *Brain Res.* (place cells);
-            Hafting et al. 2005 *Nature* (grid cells); Taube, Muller & Ranck 1990 *J. Neurosci.*
-            (head-direction cells); **Alexander et al. 2020 *Science Advances* 6:eaaz2322** (retrosplenial
-            *egocentric* boundary-vector coding — the transform machinery itself). Social versions:
-            Danjo et al. 2018 *Science* (**rats**, conspecific place-coding); Omer et al. 2018 *Science*
-            (**bats**, coding the position of another individual).
-
-            **The shared mathematics:** a rigid-body change of coordinates — one translation plus one
-            2-D rotation — is the exact operation the retrosplenial↔hippocampal system runs to move
-            between a self-centered view and a world map.
-
-            **Species / preparation tag:** rodent hippocampal-entorhinal recordings (mouse & rat);
-            the conspecific-coding results are **rat and bat**, *not* mouse.
-
-            **Where the analogy stops:** your transform is *egocentric* and it **factors heading out**;
-            place/grid/HD cells are the *allocentric endpoint* and they **encode** heading and position.
-            They are opposite ends of one computation, not the same thing — and the social conspecific
-            papers are rat/bat, so don't quietly assume a mouse homecage has an identical code.
-            """
-        )
-    })
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
     mo.md(
         r"""
         ---
-        ## 4. The 19 features — plain English
+        ## 4. The 19 features, in plain English
 
-        `allocentricize` gives you a body-frame movie; `features_one` summarizes each event's movie
-        into **19 numbers**. Every one is arena-invariant (Section 5 proves it). Here's what each means:
+        `allocentricize` gives you a body-frame movie of an event; `cu.features_one` summarizes that
+        movie into **19 numbers**. Each is arena-invariant (Section 5 checks this). Here is what each
+        one means:
 
-        | # | name | plain English |
+        | # | name | plain meaning |
         |---|------|----------------|
         | 0 | `appr_speed_mean` | approacher's average body speed (px/frame) |
-        | 1 | `appr_speed_max` | approacher's **peak** speed — a lunge shows up here |
+        | 1 | `appr_speed_max` | approacher's peak speed — a lunge shows up here |
         | 2 | `appe_speed_mean` | approachee's average body speed |
-        | 3 | `appe_speed_max` | approachee's peak speed — a flinch/flee spikes this |
+        | 3 | `appe_speed_max` | approachee's peak speed — a flinch or flee spikes this |
         | 4 | `appr_body_len` | approacher nose→tail-base length (stretched vs hunched posture) |
         | 5 | `appe_body_len` | approachee body length |
-        | 6 | `appr_angvel` | how fast the approacher **turns** (heading angular velocity) |
+        | 6 | `appr_angvel` | how fast the approacher turns (heading angular velocity) |
         | 7 | `appe_angvel` | how fast the approachee turns |
         | 8 | `pair_dist_mean` | average distance between the two mice |
-        | 9 | `pair_dist_min` | their **closest** distance in the event |
-        | 10 | `appr_nose_to_appe_tti_min` | closest approacher-nose → approachee-rump (anogenital sniff / rear attack) |
-        | 11 | `appe_nose_to_appr_tti_min` | closest approachee-nose → approacher-rump |
-        | 12 | `appr_faces_appe` | does the approacher **point at** the other? facing cosine, +1 = dead-on |
+        | 9 | `pair_dist_min` | their closest distance during the event |
+        | 10 | `appr_nose_to_appe_tti_min` | closest approacher-nose → approachee-rump distance (a rear sniff/attack) |
+        | 11 | `appe_nose_to_appr_tti_min` | closest approachee-nose → approacher-rump distance |
+        | 12 | `appr_faces_appe` | does the approacher point at the other? facing cosine, +1 = dead-on |
         | 13 | `appe_faces_appr` | does the approachee point back at the approacher? |
-        | 14 | `closing_speed` | how fast the gap shrinks (+ = closing in) |
+        | 14 | `closing_speed` | how fast the gap shrinks (positive = closing in) |
         | 15 | `heading_alignment` | are the two headings parallel (+1) or opposed (−1)? |
-        | 16 | `bystander_dist_mean` | average distance to the **third** (bystander) mouse |
+        | 16 | `bystander_dist_mean` | average distance to the third (bystander) mouse |
         | 17 | `bystander_dist_min` | closest the bystander gets |
-        | 18 | `triangle_area_mean` | spread of the trio (area of the 3-centroid triangle) |
+        | 18 | `triangle_area_mean` | spread of the trio (area of the triangle of the three centroids) |
 
-        Notice the mix: **kinematics** (speed, angular velocity), **posture** (body length),
-        **relative geometry** (distances, facing cosines), and the **third mouse** — the whole social
-        configuration, no arena coordinates anywhere.
+        `cu.features_one` · *purpose:* turn one event into these 19 numbers ·
+        *input:* `kp_event` of shape `(T, 3, 15, 2)`, mice ordered [approacher, approachee, bystander]
+        · *output:* a length-19 vector. Notice the mix: **kinematics** (speed, angular velocity),
+        **posture** (body length), **relative geometry** (distances, facing cosines), and the
+        **third mouse** — the whole social configuration, with no arena coordinates anywhere.
         """
     )
     return
@@ -377,13 +422,20 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 5. The invariance demo — pick up the whole cage and shake it
+        ## 5. Checking invariance: rotate and move the whole cage
 
-        Here's the payoff of choosing a body-frame point of view. Grab the Hero Event and apply a
-        **random rigid motion** to the *entire scene*: rotate the whole cage by some angle and slide it
-        somewhere else. The **raw coordinates swing wildly** (left) — but the **19 features don't move at
-        all** (right), because every one is measured *between* the mice, not against the walls. Drag the
-        angle and watch: the left panel spins, the right panel is frozen.
+        This is the benefit of the body-centered choice. Take the example event and apply a **rigid
+        motion** to the *entire scene*: rotate the whole cage by some angle and slide it somewhere
+        else. Then compare two kinds of measurement:
+
+        - **Arena-frame measurements** (bottom bars) — the approacher's absolute heading angle and its
+          centroid position in the cage. These **change** with the warp, because they describe where
+          the mouse is and which way it points in the arena.
+        - **Body-frame features** (right panel) — the 19 numbers from `features_one`. These stay
+          **frozen**, because every one is measured *between* the mice, not against the arena walls.
+
+        Drag the angle. The raw node cloud on the left visibly swings, the arena measurements below it
+        change, and the 19 features on the right do not move.
         """
     )
     return
@@ -398,39 +450,60 @@ def _(mo):
 
 
 @app.cell
-def _(HERO, cu, feat_names, go, inv_angle, kp, mo, np):
-    _hero = kp[HERO].astype(float)
-    _f0 = cu.features_one(_hero)
+def _(EX, cu, feat_names, go, inv_angle, kp, mo, np):
+    _ev = kp[EX].astype(float)
+    _f0 = cu.features_one(_ev)
     _th = np.deg2rad(inv_angle.value)
     _R = np.array([[np.cos(_th), -np.sin(_th)], [np.sin(_th), np.cos(_th)]])
     _trans = np.array([600.0, -300.0])                      # a fixed, obvious translation
-    _warp = np.einsum("ij,tmnj->tmni", _R, _hero) + _trans[None, None, None, :]
+    _warp = np.einsum("ij,tmnj->tmni", _R, _ev) + _trans[None, None, None, :]
     _f1 = cu.features_one(_warp)
     _maxdiff = float(np.nanmax(np.abs(_f0 - _f1)))
 
-    # left: raw node cloud at contact for original vs warped -> the coordinates clearly move
-    _t = _hero.shape[0] // 2
-    _p0 = _hero[_t].reshape(-1, 2); _p0 = _p0[np.isfinite(_p0).all(1)]
+    # arena-frame quantities that DO change: approacher heading angle + centroid position (mid frame)
+    def _arena_meas(evt):
+        _mid = evt.shape[0] // 2
+        _ap = evt[_mid, 0]
+        _v = _ap[cu.HEAD] - _ap[cu.TTI]
+        _hd = float(np.rad2deg(np.arctan2(_v[1], _v[0])))
+        _cen = np.nanmean(_ap[cu.BODY_NODES], axis=0)
+        return [_hd, float(_cen[0]), float(_cen[1])]
+    _a0 = _arena_meas(_ev)
+    _a1 = _arena_meas(_warp)
+    _anames = ["heading angle (deg)", "centroid x (px)", "centroid y (px)"]
+
+    # left: raw node cloud at contact, original vs warped -> the coordinates clearly move
+    _t = _ev.shape[0] // 2
+    _p0 = _ev[_t].reshape(-1, 2); _p0 = _p0[np.isfinite(_p0).all(1)]
     _p1 = _warp[_t].reshape(-1, 2); _p1 = _p1[np.isfinite(_p1).all(1)]
     _left = go.Figure()
     _left.add_scatter(x=_p0[:, 0], y=_p0[:, 1], mode="markers",
                       marker=dict(color="#7f7f7f", size=6), name="original")
     _left.add_scatter(x=_p1[:, 0], y=_p1[:, 1], mode="markers",
-                      marker=dict(color="#d62728", size=6), name="rotated + translated")
+                      marker=dict(color="#d62728", size=6), name="rotated + moved")
     _left.update_yaxes(scaleanchor="x", scaleratio=1, showgrid=False)
     _left.update_xaxes(showgrid=False)
     _left.update_layout(template="plotly_white", height=420, title="RAW pixel coordinates — they swing",
                         margin=dict(l=10, r=10, t=40, b=10), legend=dict(y=1.0))
 
-    # right: the 19 features, both versions, overlaid -> identical
+    # right: the 19 body-frame features, both versions, overlaid -> identical
     _right = go.Figure()
     _right.add_bar(x=feat_names, y=_f0, marker_color="#7f7f7f", name="original")
     _right.add_bar(x=feat_names, y=_f1, marker_color="#d62728", name="warped", opacity=0.6)
     _right.update_layout(template="plotly_white", height=420, barmode="overlay",
-                         title=f"19 features — frozen (max |Δ| = {_maxdiff:.2e})",
+                         title=f"19 body-frame features — frozen (max |Δ| = {_maxdiff:.2e})",
                          margin=dict(l=10, r=10, t=40, b=120), legend=dict(y=1.0))
     _right.update_xaxes(tickangle=-60)
-    mo.vstack([inv_angle, mo.hstack([_left, _right], widths=[1, 1])])
+
+    # bottom: the arena-frame measurements that DO change
+    _arena = go.Figure()
+    _arena.add_bar(x=_anames, y=_a0, marker_color="#7f7f7f", name="original")
+    _arena.add_bar(x=_anames, y=_a1, marker_color="#d62728", name="warped")
+    _arena.update_layout(template="plotly_white", height=300, barmode="group",
+                         title="ARENA-frame measurements — these DO change under the warp",
+                         margin=dict(l=10, r=10, t=40, b=10), legend=dict(y=1.0))
+
+    mo.vstack([inv_angle, mo.hstack([_left, _right], widths=[1, 1]), _arena])
     return
 
 
@@ -438,19 +511,25 @@ def _(HERO, cu, feat_names, go, inv_angle, kp, mo, np):
 def _(mo):
     mo.md(
         r"""
-        The features are fixed to **~1e-4 or better** (numerically, exactly zero) no matter how you spin
-        or shift the cage. That is *invariance*, and it is the reason the next five notebooks can treat
-        one event as one point in a 19-D space without ever worrying about where in the arena it
-        happened.
+        The body-frame features stay fixed to about **1e-4 or better** (numerically, zero) no matter
+        how you spin or shift the cage, while the arena heading and centroid change with every turn.
+        That contrast is the definition of **invariance**, and it is why the next several notebooks can
+        treat one event as one point in a 19-dimensional space without ever worrying about where in the
+        arena it happened.
 
         ---
         ## 6. Which features carry aggression?
 
-        Now split the corpus by `agg_label` (aggression vs not) and look at each feature's distribution.
-        Pick a feature; the violins show the two groups with a Mann–Whitney U p-value annotated. Watch
-        which features separate cleanly — and, foreshadowing today's lab-meeting answer, notice that the
-        *geometry* features (facing, distance, angle) separate far **less** than the **kinematic** ones
-        (speed, angular velocity).
+        Now use the aggression label (`agg`, 0/1) to ask which features actually differ between
+        aggressive and non-aggressive events. For a chosen feature, the two **violin** plots show its
+        distribution in each group. A violin is a smoothed histogram mirrored into a symmetric shape;
+        the box inside marks the median and quartiles. The header reports a **Mann–Whitney U** p-value
+        (a rank-based test of whether the two groups differ) and **Cohen's d** (the difference in
+        means, in standard-deviation units — a plain effect size).
+
+        Step through the features and notice the pattern: the **kinematic** features (speed, angular
+        velocity) separate the two groups much more cleanly than the **geometry** features (facing,
+        distance, angle). We will make that observation precise in the exercise.
         """
     )
     return
@@ -490,78 +569,97 @@ def _(X, agg, feat_names, feat_pick, go, mo, np):
 def _(mo):
     mo.md(
         r"""
-        A facing cosine (`appr_faces_appe`) is the behavioral cousin of **cosine directional tuning** in
-        motor cortex (Georgopoulos 1986) — a neuron that fires most for one movement direction and falls
-        off as the cosine of the angle away from it. The difference to keep straight: *our* detectors are
-        **designed** by us; a tuning curve is **learned/measured** from the animal.
-
         ---
-        ## 7. Exercise — does aggression arrive from a different *direction*?
-        """
-    )
-    return
+        ## 7. Exercise — does aggression arrive from a different direction?
 
+        ### Why ask this
 
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(
-        r"""
-        **Toolbox.**
+        The kinematic features clearly separate aggression. A reasonable follow-up: does aggression
+        also come from a different **direction** — does the approachee sit in a different part of the
+        approacher's body frame at contact (in front vs behind)? This is exactly the kind of question
+        the body frame makes easy to ask, because "in front" simply means the other mouse's tail-base
+        has a positive y-coordinate once we are in the approacher's frame.
 
-        - `cu.allocentricize(kp_event)` — `(T,3,15,2)` world coords → `(T,3,15,2)` in the **approacher's**
-          body frame (origin at approacher TTI, heading → +y). *Falls back to identity if head/TTI are
-          missing.*
-        - `cu.TTI` (= 11) — the tail-base node index; `cu.HEAD` (= 1) — the head node.
-        - `contact` — per-event contact-onset frame; `agg` — per-event aggression label (0/1).
-        - `np.histogram2d`, `np.nanmean`.
+        ### Definitions you need
 
-        **Hypothesis banner.** *Aggressive contacts arrive from a different angle than non-aggressive
-        ones — the approachee sits in a different part of the approacher's body frame at contact.*
+        - **Body frame** — from Section 1: approacher tail-base at the origin, heading pointing +y.
+        - **"In front"** — in that frame, the approachee's tail-base (node `cu.TTI`) has **y > 0**.
+        - `contact` — the per-event frame index where contact begins.
 
-        **Your job (two parts).**
+        ### What to do
 
-        1. **The transform, by hand.** For the Hero Event, apply `allocentricize`, take the first frame
-           where the approacher's head and TTI are both finite, and confirm the approacher's **TTI lands
-           at the origin** and its **heading points at +y**.
-        2. **Front vs rear.** Pool all events. For each, take the **approachee's TTI** in the
-           **approacher's body frame** at that event's `contact` frame. Call it *in front* if its
-           `y > 0`. Compute the fraction *in front* for aggression vs non-aggression events, and report
-           the difference.
+        You will fill in **two blanks** (`____`). Everything else is written for you.
 
-        Fill in `front_diff` (part 2's aggression-minus-nonaggression fraction) and `hero_ok` (part 1,
-        a bool). Then run the self-check.
+        - **Part 1** transforms the example event into the body frame and checks the approacher lands
+          at the origin facing up. You fill the call to `cu.allocentricize`.
+        - **Part 2** loops over all events, finds the approachee's tail-base in the approacher's body
+          frame at contact, and marks it "in front" when its y-coordinate is positive. You fill the
+          `y > 0` test.
+
+        The cell returns `ex_ok` (Part 1, a bool), `front_diff` (Part 2, the aggression-minus-non
+        fraction-in-front), and the raw y-values for the plot below.
         """
     )
     return
 
 
 @app.cell
-def _(HERO, agg, contact, cu, kp, np):
-    # ------------------------------------------------------------------ YOUR CODE (edit this cell)
-    # Part 1 — the transform, by hand, on the Hero Event:
-    _bf_hero = cu.allocentricize(kp[HERO].astype(float))
-    _ho = np.isfinite(kp[HERO].astype(float)[:, 0, cu.HEAD]).all(1)
-    _to = np.isfinite(kp[HERO].astype(float)[:, 0, cu.TTI]).all(1)
+def _(EX, agg, contact, cu, kp, np):
+    # ===================== EXERCISE — edit ONLY the two lines marked  # TODO , then run ============
+    # The two TODO lines currently hold a deliberately-wrong placeholder, so the self-check below
+    # reads "Not yet" until you fix them. Nothing else in this cell needs editing.
+    #
+    # Part 1 — transform the example event into the approacher's body frame.
+    #   cu.allocentricize(event) · input: (T,3,15,2) arena coords · output: same shape, with the
+    #   approacher's tail-base at the origin and its heading pointing +y.
+    bf_ex = kp[EX].astype(float)         # TODO: wrap this in cu.allocentricize(...) so it is body-framed
+    #
+    # (Part 1 check — nothing to edit here. It reads the approacher's tail-base + head from the first
+    #  fully-tracked frame and checks the tail-base is at (0,0) and the heading is (0,1).)
+    _ho = np.isfinite(kp[EX].astype(float)[:, 0, cu.HEAD]).all(1)
+    _to = np.isfinite(kp[EX].astype(float)[:, 0, cu.TTI]).all(1)
     _anchor = np.where(_ho & _to)[0][0]
-    _tti = _bf_hero[_anchor, 0, cu.TTI]
-    _head = _bf_hero[_anchor, 0, cu.HEAD]
+    _tti = bf_ex[_anchor, 0, cu.TTI]
+    _head = bf_ex[_anchor, 0, cu.HEAD]
     _heading = (_head - _tti) / (np.linalg.norm(_head - _tti) + 1e-12)
-    hero_ok = bool(np.allclose(_tti, 0.0, atol=1e-3) and np.allclose(_heading, [0.0, 1.0], atol=1e-2))
+    ex_ok = bool(np.allclose(_tti, 0.0, atol=1e-3) and np.allclose(_heading, [0.0, 1.0], atol=1e-2))
 
-    # Part 2 — front vs rear, pooled. (A live loop over ~1500 events; allocentricize is a cheap
-    # einsum so this runs in well under a second.)
-    _front, _lab = [], []
+    # Part 2 — front vs rear, over every event. (allocentricize is a cheap einsum, so looping over
+    #   ~1500 events runs in well under a second.) This loop and the y-values are written for you.
+    front_y, front_lab = [], []
     for _i in range(len(kp)):
         _bf = cu.allocentricize(kp[_i].astype(float))
         _t = min(int(contact[_i]), _bf.shape[0] - 1)
-        _p = _bf[_t, 1, cu.TTI]                     # approachee TTI in approacher body frame
+        _p = _bf[_t, 1, cu.TTI]                     # approachee tail-base in the approacher's frame
         if np.isfinite(_p).all():
-            _front.append(_p[1] > 0)                # y>0 => in front of the approacher
-            _lab.append(agg[_i])
-    _front = np.array(_front); _lab = np.array(_lab)
-    front_diff = float(_front[_lab == 1].mean() - _front[_lab == 0].mean())
-    # ---------------------------------------------------------------------------------------------
-    return front_diff, hero_ok
+            front_y.append(float(_p[1]))
+            front_lab.append(int(agg[_i]))
+    _y = np.array(front_y); _lab = np.array(front_lab)
+    _in_front = _y > _y.max() + 1.0      # TODO: the approachee is in front when its y is positive: use  _y > 0
+    front_diff = float(_in_front[_lab == 1].mean() - _in_front[_lab == 0].mean())
+    # ==============================================================================================
+    return ex_ok, front_diff, front_lab, front_y
+
+
+@app.cell
+def _(front_lab, front_y, go, np):
+    # Expected picture: two histograms, both piled up at y > 0 (dashed line), heavily overlapping.
+    # If aggression arrived from a different direction, the red distribution would shift off the gray
+    # one — it does not.
+    _y = np.array(front_y, float); _lab = np.array(front_lab, int)
+    _fig = go.Figure()
+    _fig.add_histogram(x=_y[_lab == 0], name="not aggression",
+                       marker_color="#7f7f7f", opacity=0.6, nbinsx=40)
+    _fig.add_histogram(x=_y[_lab == 1], name="aggression",
+                       marker_color="#d62728", opacity=0.6, nbinsx=40)
+    _fig.add_vline(x=0.0, line_dash="dash", line_color="#333")
+    _fig.update_layout(barmode="overlay", template="plotly_white", height=380,
+                       title="approachee tail-base y in the approacher's body frame at contact "
+                             "(y > 0 = in front)",
+                       xaxis_title="y (px, body frame)", yaxis_title="event count",
+                       margin=dict(l=10, r=10, t=50, b=10), legend=dict(y=1.0))
+    _fig
+    return
 
 
 @app.cell(hide_code=True)
@@ -569,35 +667,20 @@ def _(mo):
     mo.accordion({
         "Show solution": mo.md(
             r"""
-            ```python
-            # Part 1
-            bf_hero = cu.allocentricize(kp[HERO].astype(float))
-            ho = np.isfinite(kp[HERO].astype(float)[:, 0, cu.HEAD]).all(1)
-            to = np.isfinite(kp[HERO].astype(float)[:, 0, cu.TTI]).all(1)
-            anchor = np.where(ho & to)[0][0]
-            tti  = bf_hero[anchor, 0, cu.TTI]                       # ~ (0, 0)
-            head = bf_hero[anchor, 0, cu.HEAD]
-            heading = (head - tti) / np.linalg.norm(head - tti)    # ~ (0, 1)
-            hero_ok = np.allclose(tti, 0, atol=1e-3) and np.allclose(heading, [0, 1], atol=1e-2)
+            Fill the two blanks like this:
 
-            # Part 2
-            front, lab = [], []
-            for i in range(len(kp)):
-                bf = cu.allocentricize(kp[i].astype(float))
-                t = min(int(contact[i]), bf.shape[0] - 1)
-                p = bf[t, 1, cu.TTI]           # approachee tail-base in approacher frame
-                if np.isfinite(p).all():
-                    front.append(p[1] > 0); lab.append(agg[i])
-            front, lab = np.array(front), np.array(lab)
-            front_diff = front[lab == 1].mean() - front[lab == 0].mean()
+            ```python
+            bf_ex = cu.allocentricize(kp[EX].astype(float))   # Part 1 blank
+            _in_front = _y > 0                                 # Part 2 blank
             ```
 
-            **What you should find:** the transform check passes exactly, and `front_diff` is **tiny**
-            (about +0.01). Almost every approach is *frontal* by construction — the approacher is, after
-            all, approaching — so aggression does **not** arrive from a different direction. The honest
-            answer to the lab-meeting question is *no*: the aggression signal lives in the **kinematic**
-            features (speed, angular velocity; recall `appe_angvel` had Cohen's d ≈ 1.0), not in the
-            approach angle. That is exactly why we keep all 19 features instead of just a geometry summary.
+            **What you should find:** the Part 1 check passes exactly (`ex_ok` is `True`), and
+            `front_diff` is **tiny** (about +0.01). In the plot, both histograms sit almost entirely at
+            y > 0 and overlap heavily. Almost every approach is frontal by construction — the approacher
+            is, after all, approaching — so aggression does **not** arrive from a different direction.
+            The honest answer is *no*: the aggression signal lives in the **kinematic** features (speed,
+            angular velocity; recall `appe_angvel` had a large Cohen's d), not in the approach angle.
+            That is exactly why we keep all 19 features instead of a geometry-only summary.
             """
         )
     })
@@ -605,28 +688,31 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(front_diff, hero_ok, mo):
-    # Honest self-check with a tolerance band. Part 1 is exact; part 2's GRADED-CORRECT answer is the
-    # honest null: the front-vs-rear difference is SMALL (|diff| < 0.10; pinned full-corpus value ~0.01),
-    # i.e. aggression does NOT arrive from a different direction.
-    _p1 = bool(hero_ok)
+def _(ex_ok, front_diff, mo):
+    # Self-check with a tolerance band. Part 1 is exact; the GRADED-CORRECT answer for Part 2 is the
+    # honest null: the front-vs-rear difference is SMALL (|diff| < 0.10; pinned full-corpus value
+    # ~0.01), i.e. aggression does NOT arrive from a different direction.
+    _p1 = bool(ex_ok)
     _p2 = abs(float(front_diff)) < 0.10
     _ok = _p1 and _p2
     _c = "#e8f5e9" if _ok else "#ffebee"
     _b = "#2e7d32" if _ok else "#c62828"
-    _msg1 = "✅ approacher lands at origin facing +y" if _p1 else "❌ transform check failed — origin/heading off"
-    _msg2 = (f"✅ front-vs-rear difference is small ({front_diff:+.3f}) — aggression does NOT arrive from a "
-             "different direction; the signal is kinematic"
+    _msg1 = ("Part 1: approacher lands at the origin facing +y." if _p1
+             else "Part 1: transform check failed — origin or heading is off. Fill bf_ex with "
+                  "cu.allocentricize(kp[EX].astype(float)).")
+    _msg2 = (f"Part 2: front-vs-rear difference is small ({front_diff:+.3f}) — aggression does NOT "
+             "arrive from a different direction; the signal is kinematic."
              if _p2 else
-             f"❌ your front_diff = {front_diff:+.3f} is implausibly large — check the body-frame y-sign")
+             f"Part 2: your front_diff = {front_diff:+.3f} is implausibly large — check the y > 0 "
+             "test and the body-frame y-sign.")
     _head = "PASS — both parts correct" if _ok else "Not yet — fix the flagged part"
     mo.md(
         f"""
         <div style="background:{_c};border-left:6px solid {_b};padding:12px 16px;border-radius:6px">
         <b style="color:{_b}">{_head}</b><br>
         {_msg1}<br>{_msg2}<br>
-        <span style="font-size:0.9em;color:#555">Graded answer for part 2 is the honest null — the
-        exercise is not scored against noise. Tolerance band: |front_diff| &lt; 0.10.</span>
+        <span style="font-size:0.9em;color:#555">The graded answer for Part 2 is the honest null, so
+        the exercise is not scored against noise. Tolerance band: |front_diff| &lt; 0.10.</span>
         </div>
         """
     )
@@ -635,24 +721,15 @@ def _(front_diff, hero_ok, mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    # Sealed Cage 16 — visible but redacted; opens in NB08. Counter: 6 notebooks from now.
+    # Held-out test cage — set aside now, evaluated in NB08. Stated plainly (no redaction theatrics).
     mo.md(
         r"""
         ---
-        <div style="background:#1a1a1a;color:#bbb;padding:16px 20px;border-radius:8px;
-                    border:2px dashed #555">
-        <b style="color:#ff5252;letter-spacing:1px">🔒 SEALED — CAMERA 16</b>
-        &nbsp;·&nbsp; <span style="color:#888">the animal on the rig</span><br><br>
-        <span style="font-family:monospace">
-        events: <b style="color:#ddd">470</b> &nbsp;|&nbsp;
-        aggression: <b>██████</b> &nbsp;|&nbsp;
-        sex: <b>█</b> &nbsp;|&nbsp;
-        rank labels: <b>████████</b><br>
-        skeletons: <span style="color:#333;background:#333">▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓</span>
-        </span><br><br>
-        This is the cage the decoder must survive but has <i>never seen</i>. Its 19 features already
-        exist — we just refuse to look. <b style="color:#ffb74d">Notebooks until unlock: 6.</b>
-        </div>
+        > **Held-out test cage (Camera 16).** One cage — 470 events — is set aside and never used for
+        > training or for inspecting features. Its 19 features already exist; we simply do not look at
+        > them until NB08, where the decoder is evaluated on this cage to measure how well it
+        > generalizes to an animal it has never seen. Keeping it untouched is what makes that later
+        > number trustworthy.
         """
     )
     return
@@ -663,31 +740,31 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## What we threw away / how it breaks
+        ## What the transform discards, and how it can break
 
-        **Discarded on purpose.** The body-frame transform deliberately throws away *where in the cage*
-        the event happened and *which way the approacher faced in the arena* — an egocentric view keeps
-        only relative geometry. That's the point, but it means you can **no longer ask arena questions**
-        from `X` alone (does aggression cluster near a wall? at the food hopper?). Those need the raw
-        coordinates back.
+        **Discarded on purpose.** The body-frame transform deliberately drops *where in the cage* the
+        event happened and *which way the approacher faced in the arena*. That is the goal, but it
+        means you can **no longer ask arena questions** from `X` alone (does aggression cluster near a
+        wall? at the food hopper?). Those need the raw coordinates back.
 
-        **Concrete failure modes on this dataset.**
+        **Failure modes on this dataset.**
 
-        1. **Silent identity fallback.** If the approacher's head or TTI is missing on *every* frame,
-           `allocentricize` returns the event **unchanged** — the features are then computed in raw arena
-           coordinates and are *not* invariant. This is invisible unless you audit for it (tail-chain and
-           head dropout are exactly the nodes NB01 flagged as least reliable).
-        2. **One bad heading rotates the whole scene.** The transform reads heading from a *single* anchor
-           frame. If that frame's head/TTI is jittery, the entire event is rotated to the wrong angle and
-           every geometry feature is corrupted — with no error raised.
-        3. **Angle is nearly useless here.** As the exercise showed, approach *direction* barely separates
-           aggression (front_diff ≈ 0.01). A pipeline that leaned on approach angle would find almost
+        1. **Silent fallback to raw coordinates.** If the approacher's head or tail-base is missing on
+           *every* frame, `allocentricize` cannot find a heading and returns the event **unchanged** —
+           the features are then computed in raw arena coordinates and are *not* invariant. This is
+           invisible unless you audit for it, and head/tail-chain dropout are exactly the nodes NB01
+           flagged as least reliable.
+        2. **One bad frame rotates the whole scene.** The transform reads the heading from a *single*
+           anchor frame. If that frame's head or tail-base is jittery, the entire event is rotated to
+           the wrong angle and every geometry feature is corrupted, with no error raised.
+        3. **Angle carries little here.** As the exercise showed, approach *direction* barely separates
+           aggression (`front_diff` ≈ 0.01). A pipeline that leaned on approach angle would find almost
            nothing; the real signal is kinematic.
 
-        **How would you analyze this?** Head-direction cells *encode* heading; your transform *factors it
-        out*. Sketch how a brain (or your pipeline) could use a head-direction signal to move **between**
-        the egocentric and allocentric frames — and what you'd gain by keeping both representations
-        instead of collapsing to one.
+        **A question to sit with.** We factored heading *out* to get invariance. But heading is also
+        information. What would you gain by keeping *both* representations — the body-frame features and
+        the raw arena pose — instead of collapsing to one? (We keep the raw coordinates on disk for
+        exactly this reason.)
         """
     )
     return
@@ -706,15 +783,14 @@ def _(mo):
         ---
         ## What we ship next
 
-        You shipped the deliverable: **`X (1500, 19)`** — every event as one arena-invariant vector of
-        social geometry and kinematics, the same egocentric move retrosplenial cortex makes on every
-        step. Gauge A fell from **11,700 raw numbers to 19**. And we already learned something honest:
-        aggression is *not* a matter of direction, it's a matter of **motion**.
+        You built the deliverable: **`X (1500, 19)`** — every event as one arena-invariant vector of
+        social geometry and kinematics. Gauge A fell from **11,700 raw numbers to 19**. And we learned
+        something concrete: aggression is not a matter of *direction*, it is a matter of *motion*.
 
-        But 19 numbers is still a lot to look at, and they are far from independent — speed, closing
-        speed, and distance obviously move together. **Next (NB03): feel the signal in time.** Before we
-        compress these 19, we'll *look* at them — in value, in time, and in frequency — the way a
-        physiologist reads a raw trace, and measure who-moves-first between two coupled mice.
+        Nineteen numbers is still a lot to look at, and they are far from independent — speed, closing
+        speed, and distance clearly move together. **Next (NB03): reading the signal in time.** Before
+        we compress these 19, we will look at them in value, in time, and in frequency — the way a
+        physiologist reads a raw trace — and measure who moves first between two coupled mice.
         """
     )
     return

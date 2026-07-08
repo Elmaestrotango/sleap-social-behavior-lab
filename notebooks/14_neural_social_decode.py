@@ -57,32 +57,41 @@ def _():
 def _(mo):
     mo.md(
         r"""
-        # NB14 · Neural Signals of Social Isolation — *the decoder reads a brain*
+        # NB14 · Decoding Social State from Neural Activity
 
-        > **WEEK 2 · THE NEURAL TWIN — this is the payoff.**
-        >
-        > **FROM: Circuit Team → TO: You**
-        >
-        > In **NB08** you graduated a decoder that read *behavior* off pose: 19 body-frame features
-        > per event → an aggression call, cross-validated, generalized to a cage it had never seen.
-        > Today you point the **same computational move** at a **brain**. We hand you real
-        > single-cell calcium from a miniscope while a mouse meets an intruder. You will z-score it,
-        > put it on the behavior clock, find the cells that light up during social contact — and then
-        > **train a population decoder to read *social state* straight off the neurons.**
-        >
-        > **The twin, stated plainly:** *NB08 decoded behavior from pose. NB14 decodes social state
-        > from calcium — with the same sklearn logistic regression, the same cross-validation, the
-        > same AUROC yardstick.* You built the behavioral decoder; here it is, reading a brain.
-        > A decoder that survives a **new session** is the neural face of a cross-session
-        > brain–machine interface — the exact demand a real BMI meets every recording day.
-        >
-        > **Today's lab-meeting question:** *Can a linear readout of the population vector tell
-        > "socializing" from "not" above chance — and does social isolation change how many cells
-        > carry the social signal?*
+        **Week 2 · using real calcium imaging data.**
 
-        Four beats: **(1)** put calcium on the behavior clock (interpolate + z-score),
-        **(2)** find "social neurons," **(3)** count them across isolation conditions *honestly*,
-        **(4)** train the population decoder — the direct twin of NB08.
+        **Why this matters.** In Week 1 you built tools that turn raw pose into a compact description
+        of behavior, and in NB08 you trained a classifier that reads a behavioral label (aggression)
+        off pose features. In this notebook you apply the same kind of classifier to a different
+        input: the activity of real neurons recorded while a mouse behaves socially. The scientific
+        question is whether the recorded population of cells carries information about a social
+        behavior, and whether social isolation changes how that information is distributed across
+        cells.
+
+        **Definitions used throughout.**
+
+        - **Decode a behavior from neural activity.** Train a model that takes the neurons' activity
+          at a moment in time and predicts a behavioral label for that moment (here, whether the
+          focal mouse is socially engaging). If the model predicts above chance on frames it was not
+          trained on, we say the behavior can be *decoded* from the population.
+        - **Population vector.** The list of every recorded neuron's activity at one time frame. For a
+          session with 218 neurons, each frame is a vector of 218 numbers. The decoder's input is one
+          such vector per frame.
+        - **Cross-validation.** To check that the model generalizes rather than memorizes, we split
+          the frames into folds, train on some folds, and score on the held-out fold. Every frame is
+          scored by a model that never saw it during training. This is the same idea used in NB08.
+        - **AUROC** (area under the ROC curve). A single number summarizing how well the predicted
+          probabilities separate the two classes. 0.5 is chance; 1.0 is perfect. This is the same
+          yardstick used in NB08.
+
+        **The plan.** (1) Put the calcium on the same clock as the behavior. (2) Look for individual
+        cells whose activity differs during social vs non-social frames. (3) Count those cells across
+        isolation conditions. (4) Train a population decoder and evaluate it with cross-validated
+        AUROC.
+
+        The decode target throughout is `is_social_sender`: a per-frame boolean that is True when the
+        focal mouse is socially engaging the intruder.
         """
     )
     return
@@ -109,16 +118,21 @@ def _(cond_labels, img, mo, n_sessions):
     _neur = [im.shape[1] for im in img]
     mo.md(
         f"""
-        **Dataset loaded — SI3_2022 social-isolation cohort.** {n_sessions} sessions of paired
-        miniscope calcium + frame-by-frame social behavior. A focal mouse (group-housed **control**,
-        or isolated **24hr** / **7d**) meets an intruder; we track calcium and score when the focal
-        is socially engaging. Sessions per condition: **{_counts}**. Neuron counts vary per session
-        (**{min(_neur)}–{max(_neur)}** cells) because each recording demixes its own field of view —
-        which is exactly why a naive cross-session decoder is *not* trivial (honest note at the end).
+        **Dataset: SI3_2022 social-isolation cohort.** {n_sessions} sessions, each pairing miniscope
+        calcium imaging with frame-by-frame social behavior scoring. In every session a focal mouse
+        (group-housed **control**, or isolated for **24hr** or **7d**) meets an intruder; we record
+        the focal mouse's neural activity and label each frame for whether it is socially engaging the
+        intruder. Sessions per condition: **{_counts}**.
 
-        The two signals live on **different clocks**: calcium at **30 fps**, behavior at **25 fps**.
-        Before we can align a cell to a social bout, the calcium has to be resampled onto the
-        behavior clock. That interpolation is the first move.
+        Neuron counts differ across sessions (**{min(_neur)}–{max(_neur)}** cells) because each
+        recording extracts its own set of cells from its own field of view, with no correspondence
+        between sessions. This is the reason the decoder later is trained and tested *within* a single
+        session: there is no shared neuron identity that would let a model trained on one session be
+        applied to another.
+
+        The two signals are sampled on different clocks: calcium at **30 fps**, behavior at
+        **25 fps**. To line up a neuron's activity with a behavioral label, the calcium must first be
+        resampled onto the behavior clock. That is the first step.
         """
     )
     return
@@ -130,15 +144,26 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 1. Put calcium on the behavior clock
+        ## 1. Put the calcium on the behavior clock
 
-        `nu.interp_resample(C, len(is_social))` stretches the calcium matrix (`n_frames × n_neurons`
-        at 30 fps) onto the behavior timeline (25 fps) by linear interpolation on a normalized
-        $[0,1]$ grid — the exact `scipy.interpolate.interp1d` trick the 2025 script used. Below is
-        one real neuron's trace, original samples vs. the resampled version, so you can see the
-        interpolation is honest (it never invents peaks; it re-grids the ones already there).
-        Then we **z-score** every neuron and **crop** to the first 3 minutes after the intruder
-        enters (`Int_Entry`), where the social action is.
+        **Why.** A neuron's activity and a behavioral label must be indexed by the same time frames
+        before we can ask whether they relate. Because calcium is sampled at 30 fps and behavior at
+        25 fps, the two arrays have different lengths and do not line up frame for frame.
+
+        **Method: `nu.interp_resample(C, n_out, axis=0)`.**
+
+        - *Purpose:* resample a signal to a new number of time points by linear interpolation.
+        - *Inputs:* `C`, an array of shape `(n_frames, n_neurons)`; `n_out`, the target number of
+          frames (here, the length of the behavior array).
+        - *Output:* an array of shape `(n_out, n_neurons)` on the behavior clock.
+
+        Linear interpolation re-grids the samples that are already there; it does not create new
+        peaks. The figure below shows one real neuron's trace at its original 30 fps sampling and
+        after resampling to the 25 fps behavior length, so you can confirm the shape is preserved.
+
+        After resampling we **z-score** each neuron (subtract its mean, divide by its standard
+        deviation, so all cells are on a comparable scale) and **crop** to the first 3 minutes after
+        the intruder enters (`Int_Entry`), the window where the social interaction occurs.
         """
     )
     return
@@ -159,7 +184,7 @@ def _(go, img, np, nu):
                      name="resampled → 25 fps behavior clock")
     _fig.update_layout(template="plotly_white", height=300,
                        margin=dict(l=10, r=10, t=40, b=10),
-                       title="interp_resample: one neuron, 30 fps → 25 fps (no peaks invented)",
+                       title="interp_resample: one neuron, 30 fps → 25 fps (shape preserved)",
                        xaxis_title="normalized time [0,1]", yaxis_title="calcium (a.u.)",
                        legend=dict(y=1.0))
     _fig
@@ -172,13 +197,20 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 2. The population raster, with the social overlay
+        ## 2. The population raster with the social overlay
 
-        Pick a session. We run the **whole pipeline** — `interp_resample → zscore(axis=0) → crop
-        [entry, entry + 3·60·25]` — and draw the z-scored population as a raster (one row per
-        neuron). The **green bands** mark frames the focal mouse is socially engaging
-        (`is_social_sender`); everything else is non-social. If a population carries social state,
-        the raster should *look different* under the green bands.
+        **Why.** Before decoding, it helps to look at the whole population at once and check whether
+        activity visibly changes during social frames.
+
+        **Definition.** A **raster** is a heatmap with one row per neuron and one column per time
+        frame; color is that neuron's z-scored activity. It shows the entire population's activity
+        over time in a single image.
+
+        **Method.** Pick a session. We run the full pipeline for it —
+        `interp_resample → zscore(axis=0) → crop [entry, entry + 3·60·25]` — and draw the z-scored
+        population as a raster. The **green bands** mark frames where the focal mouse is socially
+        engaging (`is_social_sender`); unmarked frames are non-social. If the population carries
+        social information, the activity under the green bands should look different from the rest.
         """
     )
     return
@@ -234,13 +266,18 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 3. One neuron at a time — social vs non-social
+        ## 3. One neuron at a time: social vs non-social
 
-        The raster is the population; now zoom to a single cell. For the chosen neuron we split its
-        z-scored activity into **social** and **non-social** frames and overlay the two
-        distributions. A *social neuron* pushes its social distribution to the right (or dips it) —
-        the histograms pull apart. A cell that ignores social state has two distributions sitting on
-        top of each other. Slide through the neurons and hunt for separation.
+        **Why.** The raster shows the whole population. To build intuition, we now look at a single
+        cell and ask whether its activity distribution differs between social and non-social frames.
+
+        **Method.** For the chosen neuron we split its z-scored activity into **social** frames and
+        **non-social** frames and overlay the two distributions. If the two distributions are shifted
+        apart, that neuron's activity depends on social state. If they sit on top of each other, the
+        neuron carries little social information. The title reports a simple summary statistic: the
+        ratio of mean absolute activity in social vs non-social frames. A cell is flagged as a
+        candidate social neuron when that ratio exceeds 1.5. Use the slider to move through the
+        neurons and see which ones separate.
         """
     )
     return
@@ -283,13 +320,21 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 4. Which cells are "social neurons"?
+        ## 4. Which cells are social neurons?
 
-        Do the per-neuron test for *every* cell at once. `nu.social_neuron_mask` computes, per
-        neuron, the ratio of mean |activity| in social vs non-social frames; cells above a threshold
-        (default **1.5**) are flagged social. The bar below shows every neuron's ratio, sorted, with
-        your threshold line — drag it and watch the count move. This is the same knob the 2025 script
-        swept by hand.
+        **Why.** Rather than inspect cells one at a time, we apply the same test to every neuron at
+        once and count how many pass.
+
+        **Method: `nu.social_neuron_mask(neurons, is_social, method="ratio")`.**
+
+        - *Purpose:* flag, for each neuron, whether its activity differs enough between social and
+          non-social frames to count as a social neuron.
+        - *Inputs:* `neurons`, the z-scored, cropped array `(T, n_neurons)`; `is_social`, the
+          per-frame boolean `(T,)`; `method`, which statistic to use (`"ratio"` by default).
+        - *Output:* a boolean array `(n_neurons,)`; `.sum()` gives the count of social neurons.
+
+        The bar chart shows every neuron's ratio, sorted, with your threshold line. Drag the
+        threshold and watch the count change. Green bars are cells currently flagged as social.
         """
     )
     return
@@ -331,15 +376,19 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 5. Does isolation change the count? (honestly)
+        ## 5. Does isolation change the count?
 
-        Now the cohort question. For every session we count social neurons and group by isolation
-        condition. Three detection methods (the three the 2025 script tried) are on the dropdown —
-        they disagree in the details, which is itself the lesson. **The honest read of the default
-        `ratio` method: controls carry the *most* social neurons; isolation *lowers* the count.**
-        But note the axis: **n = 6 sessions per condition.** This is a *descriptive* trend, not a
-        significance test — with six points per group and session-to-session spread this wide, we
-        report the direction and refuse to over-claim.
+        **Why.** The cohort-level question: does social isolation change how many cells carry the
+        social signal?
+
+        **Method.** For every session we run the pipeline, count social neurons, and group the counts
+        by isolation condition. The dropdown offers three detection methods (`ratio`, `delta`,
+        `percentile`); they disagree in the details, which is itself worth noting. With the default
+        `ratio` method, controls tend to have the most social neurons and isolated animals fewer.
+
+        **Read this honestly.** There are only **6 sessions per condition**, and the
+        session-to-session spread is wide. We report the *direction* of the trend, not a significance
+        claim. This is a descriptive observation, not a hypothesis test.
         """
     )
     return
@@ -382,22 +431,28 @@ def _(beh, behavior_fps, cond_labels, ent, go, img, method_pick, mo, np, nu):
     return
 
 
-# ============================================================================ THE PAYOFF: decoder
+# ============================================================================ decoder
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
         ---
-        ## 6. The payoff — decode social state from the population
+        ## 6. Decode social state from the population
 
-        This is the twin of NB08, line for line. There you fed **19 pose features** into a
-        `LogisticRegression` and cross-validated an aggression call. Here you feed the **population
-        vector** — every neuron's z-scored activity at a frame — into the *same* classifier and
-        ask it to predict `is_social_sender`. Five-fold stratified cross-validation (no frame the model
-        scored was in its training fold), reported as **AUROC** on the same 0.5-is-chance scale.
+        **Why.** The individual-neuron tests above look at one cell at a time. A behavior may be
+        represented across many cells jointly, in a way no single neuron makes obvious. A population
+        decoder tests whether the whole population, taken together, carries enough information to
+        predict social state.
 
-        If the population carries social state, a *linear* readout finds it. This is, mechanically,
-        a neural brain–machine interface: population vector in, behavioral state out.
+        **Method.** This is the same procedure as NB08, with a different input. There you fed 19 pose
+        features into a `LogisticRegression` and cross-validated an aggression call. Here the input is
+        the **population vector** (every neuron's z-scored activity at a frame) and the label is
+        `is_social_sender`. We use 5-fold stratified cross-validation, so every frame is scored by a
+        model that did not train on it, and report **AUROC** on the same 0.5-is-chance scale.
+
+        Because each session has its own set of neurons, the decoder is trained and tested within a
+        single session. A decoder that transferred across sessions would require matching neurons
+        between recordings, which this dataset does not provide.
         """
     )
     return
@@ -405,7 +460,7 @@ def _(mo):
 
 @app.cell
 def _(np, session_pick, sess_neurons, sess_social):
-    # Population decoder: LogisticRegression, 5-fold stratified CV, AUROC (the NB08 twin).
+    # Population decoder: LogisticRegression, 5-fold stratified CV, AUROC (same procedure as NB08).
     from sklearn.linear_model import LogisticRegression as _LogReg
     from sklearn.preprocessing import StandardScaler as _Scaler
     from sklearn.pipeline import make_pipeline as _mkpipe
@@ -445,12 +500,22 @@ def _(dec_auc, go, mo, session_pick):
 def _(mo):
     mo.md(
         r"""
-        ### Pick the operating point
+        ### Choosing a decision threshold
 
-        A decoder outputs a *probability*; a **decision threshold** turns it into a call. For a
-        real experiment that threshold is a policy — a loose criterion flags every twitch as social
-        (false positives), a strict one misses real bouts (false negatives). Slide it and read the
-        live ROC operating point plus precision / recall / confusion on the held-out predictions.
+        **Why.** The decoder outputs a *probability*, not a yes/no call. A **decision threshold**
+        converts the probability into a label: predict "social" when the probability is at or above
+        the threshold. The choice is a trade-off. A low threshold labels more frames social, catching
+        real bouts but also raising false positives; a high threshold is stricter, with fewer false
+        positives but more missed bouts.
+
+        **Definitions.** *Precision* is the fraction of frames the decoder called social that really
+        are social. *Recall* is the fraction of truly social frames the decoder caught. The ROC curve
+        plots the true-positive rate against the false-positive rate across all thresholds; the marker
+        shows where the current threshold sits on that curve.
+
+        **Method.** Slide the threshold and read the operating point on the ROC curve, together with
+        precision, recall, and the confusion counts, all computed on the held-out
+        (cross-validated) predictions.
         """
     )
     return
@@ -499,33 +564,37 @@ def _(dec_auc, dec_fpr, dec_proba, dec_tpr, dec_y, go, mo, np, thr_slider):
 @app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "The lineage — social-isolation coding & neural decoding (and where the analogy stops)": mo.md(
+        "Background — social isolation and neural decoding (and the limits of this analysis)": mo.md(
             r"""
             **Social isolation reshapes social circuits.** Matthews et al. 2016 *Cell* (dorsal raphe
             dopamine encodes a loneliness-like state after acute isolation); Zelikowsky et al. 2018
-            *Cell* (chronic isolation, Tac2/neurokinin B, amygdala & hypothalamus). **Coding of
-            conspecifics / social state:** Remedios et al. 2017 *Nature* (VMHvl mixed social
+            *Cell* (chronic isolation, Tac2/neurokinin B, amygdala and hypothalamus). **Coding of
+            conspecifics and social state:** Remedios et al. 2017 *Nature* (VMHvl mixed social
             representation); Kingsbury et al. 2019 *Cell* (interbrain neural coding of dominance).
             **Population decoding of social variables:** Padilla-Coreano et al. 2022 *Nature*
-            (mPFC ensembles decode competitive rank & social behavior) — the direct methodological
-            cousin of what you just ran, and the same paper NB08 pointed at from the behavioral side.
+            (mPFC ensembles decode competitive rank and social behavior) — the closest methodological
+            precedent for the decoder you just ran, and the same paper NB08 referenced from the
+            behavioral side.
 
-            **Shared mathematics.** A population decoder is a supervised map from a high-dimensional
-            state vector to a label, cross-validated so the score reflects *generalization*, not
-            memorization. It is the *same* estimator whether the vector is 19 pose features (NB08) or
-            N neurons (here) — that identity is the whole point of the "twin."
+            **Shared method.** A population decoder is a supervised map from a high-dimensional state
+            vector to a label, cross-validated so the score reflects generalization rather than
+            memorization. It is the same estimator whether the vector is 19 pose features (NB08) or
+            N neurons (here). Only the input changes.
 
-            **Where the analogy stops.**
-            - **Correlation, not cause.** A decodable social signal in the population does **not** mean
-              these cells *drive* social behavior. Decoding is read-out; causation needs perturbation.
-            - **n is small and the clocks were glued.** Six sessions per condition, and calcium was
-              *interpolated* onto the behavior clock — resampling can only re-grid existing structure,
-              but it also smooths, and mis-registration between the two clocks would inflate or deflate
-              alignment. Treat the condition trend as descriptive.
-            - **Within-session, not cross-session.** Each session demixes a different set of neurons
-              (202 vs 218 cells, no identity correspondence), so this decoder is cross-validated
-              *within* a session's population. A true cross-session BMI needs neuron alignment
-              (e.g. cell registration or a latent-space stitch) — that is the harder, unbuilt step.
+            **Limits of this analysis.**
+
+            - **Correlation, not cause.** A decodable social signal in the population does not mean
+              these cells *drive* social behavior. Decoding is a read-out; establishing causation
+              requires perturbation experiments.
+            - **Small n, and two clocks aligned by interpolation.** Six sessions per condition, and
+              the calcium was interpolated onto the behavior clock. Resampling can only re-grid
+              existing structure, but it also smooths, and any mis-registration between the two clocks
+              would distort the alignment. Treat the condition trend as descriptive.
+            - **Within-session, not cross-session.** Each session extracts a different set of neurons
+              (for example 202 vs 218 cells, with no identity correspondence), so this decoder is
+              cross-validated within a single session's population. Applying a decoder across sessions
+              would require matching neurons between recordings (for example cell registration or a
+              shared latent space), which this dataset does not support.
             """
         )
     })
@@ -538,31 +607,41 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## 7. Exercise — read the brain, then read it honestly
+        ## 7. Exercise — decode, then count
 
-        **Hypothesis banner.** *A linear readout of the population vector decodes social state well
-        above chance; and social isolation reduces the number of cells carrying the social signal
-        (controls have the most).*
+        **Hypothesis.** A linear readout of the population vector decodes social state above chance;
+        and social isolation reduces the number of cells carrying the social signal, so controls have
+        the most.
 
-        **Toolbox.**
+        **What is provided.** The cell below gives you a `_pipeline(s)` helper (it runs
+        `interp_resample → zscore → crop` and returns the population vectors `X` and the per-frame
+        `is_social_sender` labels `y` for session `s`), the cross-validation setup, and the
+        per-session counting loop. Two lines are left for you to complete; both are marked `# TODO`.
 
-        - `nu.interp_resample(C, n_out, axis=0)` — calcium (30 fps) → behavior clock (25 fps).
-        - `nu.zscore(x, axis=0)` — per-neuron z-score.
-        - `nu.social_neuron_mask(neurons, is_social, method="ratio")` — `(n,)` bool; `.sum()` = count.
-        - `sklearn` `LogisticRegression`, `StandardScaler`, `make_pipeline`,
-          `StratifiedKFold`, `cross_val_predict`, `roc_auc_score`.
-        - Pipeline order (fixed): `interp_resample → zscore(axis=0) → crop[entry, entry+3·60·25]`.
+        **Part 1 — decode.** The cross-validated probabilities `_proba` are already computed for
+        session 6. On the line marked `# TODO (1)`, score them with AUROC and store the result in
+        `decoder_auc`:
 
-        **Your job (two parts).**
+        ```python
+        # TODO (1): score the cross-validated probabilities with AUROC
+        decoder_auc = ____        # replace ____ with:  float(_auc_score2(_y, _proba))
+        ```
 
-        1. **Decode.** For session 6 (`is_social_sender`), build the population vector through the
-           pipeline, train a `LogisticRegression` population decoder, 5-fold stratified
-           cross-validate, and put the cross-validated **AUROC** in `decoder_auc`.
-        2. **Count, then read the trend honestly.** Count social neurons (`ratio` method) for every
-           session, average by condition, and set `most_social_condition` to the condition with the
-           **highest** mean count.
+        **Part 2 — count, then read the trend.** The dictionary `_means` already holds the mean
+        social-neuron count for each condition. On the line marked `# TODO (2)`, pick the condition
+        with the **highest** mean:
 
-        Fill in `decoder_auc` and `most_social_condition`, then run the self-check.
+        ```python
+        # TODO (2): pick the condition with the highest mean count
+        most_social_condition = ____   # replace ____ with:  max(_means, key=_means.get)
+        ```
+
+        **What you should see.** After filling both lines and running, the self-check below should
+        pass: `decoder_auc` lands near **0.95** (a linear population readout well above the 0.5
+        chance line), and `most_social_condition` is **"control"** (means: control 11.2, 7d 7.8,
+        24hr 5.8). Note this last point is a descriptive direction, not a significance test — n = 6
+        per condition. The two lines are shown completed in the cell so the notebook runs; to
+        practice, replace each right-hand side with `____` and reconstruct it yourself, then compare.
         """
     )
     return
@@ -570,7 +649,9 @@ def _(mo):
 
 @app.cell
 def _(beh, behavior_fps, cond_labels, ent, img, np, nu):
-    # ------------------------------------------------------------------ YOUR CODE (edit this cell)
+    # ------------------------------------------------------------------ YOUR CODE (edit the TODO lines)
+    # Provided helper: run resample -> zscore -> crop for one session and return
+    #   X = population vectors (T, n_neurons),  y = per-frame is_social_sender label (T,).
     def _pipeline(s, key="is_social_sender"):
         _iss = beh[s][key].astype(bool)
         _r = nu.zscore(nu.interp_resample(img[s], len(_iss), axis=0), axis=0)
@@ -578,28 +659,32 @@ def _(beh, behavior_fps, cond_labels, ent, img, np, nu):
         _t0, _t1 = _e, int(_e + 3 * 60 * behavior_fps)
         return _r[_t0:_t1], _iss[_t0:_t1]
 
-    # Part 1 — decode session 6
     from sklearn.linear_model import LogisticRegression as _LogReg2
     from sklearn.preprocessing import StandardScaler as _Scaler2
     from sklearn.pipeline import make_pipeline as _mkpipe2
     from sklearn.model_selection import StratifiedKFold as _SKF2, cross_val_predict as _cvp2
     from sklearn.metrics import roc_auc_score as _auc_score2
 
+    # Part 1 — decode session 6. Everything up to the cross-validated probabilities is done for you.
     _X, _yb = _pipeline(6)
     _y = _yb.astype(int)
     _clf = _mkpipe2(_Scaler2(), _LogReg2(max_iter=1000, class_weight="balanced"))
     _skf = _SKF2(5, shuffle=True, random_state=0)
     _proba = _cvp2(_clf, _X, _y, cv=_skf, method="predict_proba")[:, 1]
-    decoder_auc = float(_auc_score2(_y, _proba))
+    # TODO (1): score the cross-validated probabilities with AUROC.
+    #   Replace the right-hand side with:  float(_auc_score2(_y, _proba))
+    decoder_auc = float(_auc_score2(_y, _proba))          # <-- fill in
 
-    # Part 2 — count social neurons per session, mean per condition, pick the highest
+    # Part 2 — count social neurons per session, then average by condition. The loop is done for you.
     _counts = {}
     for _s in range(len(img)):
         _Xs, _ys = _pipeline(_s)
         _n = int(nu.social_neuron_mask(_Xs, _ys, method="ratio").sum())
         _counts.setdefault(cond_labels[_s], []).append(_n)
     _means = {c: float(np.mean(v)) for c, v in _counts.items()}
-    most_social_condition = max(_means, key=_means.get)
+    # TODO (2): pick the condition with the HIGHEST mean count.
+    #   Replace the right-hand side with:  max(_means, key=_means.get)
+    most_social_condition = max(_means, key=_means.get)   # <-- fill in
     # ---------------------------------------------------------------------------------------------
     return decoder_auc, most_social_condition
 
@@ -624,7 +709,7 @@ def _(mo):
                                       method="predict_proba")[:, 1]
             decoder_auc = roc_auc_score(y, proba)          # ~ 0.95
 
-            # Part 2 — count + honest trend
+            # Part 2 — count, then read the direction
             counts = {}
             for s in range(len(img)):
                 Xs, ys = pipeline(s)
@@ -634,11 +719,11 @@ def _(mo):
             most_social_condition = max(means, key=means.get)   # "control"
             ```
 
-            **What you should find.** The population decoder lands around **AUROC ≈ 0.95** — a linear
-            readout of ~218 neurons reads social state far above chance. And the social-neuron count
-            is highest in **controls** (control 11.2 · 24hr 5.8 · 7d 7.8), i.e. *isolation lowers the
-            count* — but with n=6 per condition and this much spread, that is a **descriptive**
-            direction, not a p-value. The exercise grades the *honest reading*, not noise.
+            **What you should find.** The population decoder lands around **AUROC ≈ 0.95**: a linear
+            readout of roughly 218 neurons predicts social state well above chance. The social-neuron
+            count is highest in **controls** (control 11.2, 24hr 5.8, 7d 7.8), so isolation lowers the
+            count. With n = 6 per condition and this much spread, that is a descriptive direction, not
+            a p-value. The exercise grades the honest reading, not the noise.
             """
         )
     })
@@ -648,22 +733,22 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(decoder_auc, most_social_condition, mo):
     # Self-check with tolerance bands pinned from the real data:
-    #   decoder_auc ~ 0.95 (session 6); graded as "well above chance" -> > 0.70.
+    #   decoder_auc ~ 0.95 (session 6); graded as "above chance" -> > 0.70.
     #   most_social_condition -> "control" (means control 11.17 > 7d 7.83 > 24hr 5.83).
     _p1 = float(decoder_auc) > 0.70
     _p2 = str(most_social_condition) == "control"
     _ok = _p1 and _p2
     _c = "#e8f5e9" if _ok else "#ffebee"
     _b = "#2e7d32" if _ok else "#c62828"
-    _m1 = (f"✅ decoder AUROC = {decoder_auc:.3f} — a linear population readout reads social state "
-           "far above chance (0.5)" if _p1 else
-           f"❌ decoder AUROC = {decoder_auc:.3f} is at/near chance — check the pipeline order "
+    _m1 = (f"✅ decoder AUROC = {decoder_auc:.3f} — a linear population readout predicts social state "
+           "above the 0.5 chance line" if _p1 else
+           f"❌ decoder AUROC = {decoder_auc:.3f} is at or near chance — check the pipeline order "
            "(resample → zscore → crop) and that you fed the full population vector")
-    _m2 = ("✅ controls carry the most social neurons — isolation *lowers* the count (honest, "
-           "descriptive; n=6/condition)" if _p2 else
+    _m2 = ("✅ controls carry the most social neurons — isolation lowers the count (descriptive; "
+           "n=6/condition)" if _p2 else
            f"❌ most_social_condition = {most_social_condition!r}; the pinned means are "
            "control 11.2 > 7d 7.8 > 24hr 5.8 → 'control'")
-    _head = "PASS — you decoded a brain, and read the cohort honestly" if _ok else \
+    _head = "PASS — decoder above chance, and the condition direction read correctly" if _ok else \
             "Not yet — fix the flagged part"
     mo.md(
         f"""
@@ -671,7 +756,7 @@ def _(decoder_auc, most_social_condition, mo):
         <b style="color:{_b}">{_head}</b><br>
         {_m1}<br>{_m2}<br>
         <span style="font-size:0.9em;color:#555">Tolerance band: AUROC &gt; 0.70 (chance = 0.50;
-        pinned ≈ 0.95). Part 2 is graded on the honest direction, not a significance test.</span>
+        pinned ≈ 0.95). Part 2 is graded on the direction of the trend, not a significance test.</span>
         </div>
         """
     )
@@ -684,24 +769,24 @@ def _(mo):
     mo.md(
         r"""
         ---
-        ## The twin, closed
+        ## Summary
 
-        You just ran the NB08 decoder on a **brain**. Same `LogisticRegression`, same stratified
-        cross-validation, same AUROC yardstick — only the input changed, from 19 pose features to a
-        population of real calcium neurons. It read *socializing vs not* at **AUROC ≈ 0.95**. That
-        is the Week-2 payoff stated as plainly as it can be: **the computational move that read
-        behavior reads the brain.** And you kept it honest — social-neuron counts *trend* down with
-        isolation, but with six sessions a side you reported a direction, not a discovery, and you
-        named the interpolation and the within-session limit out loud.
+        You applied the NB08 decoding procedure to neural data. The classifier, the stratified
+        cross-validation, and the AUROC yardstick are the same; only the input changed, from 19 pose
+        features to a population of real calcium neurons. On session 6 the decoder read social vs
+        non-social at **AUROC ≈ 0.95**, which means the population, taken jointly, carries clear
+        information about social state. Alongside that, the number of social neurons trended down with
+        isolation (controls highest), but with six sessions per condition this is reported as a
+        direction, not a result.
 
-        **The honest fine print, once more:** n is small; the calcium was interpolated onto the
-        behavior clock; and because each session demixes its own neurons, this decoder generalizes
-        *within* a session, not across them. Making it survive a **new session** — a real
-        cross-session BMI — is the next mountain: register cells across recordings, or learn a shared
-        latent space, then decode. That is where a course like this hands off to a lab.
+        **The main caveats, stated once more.** n is small; the calcium was interpolated onto the
+        behavior clock; and because each session extracts its own neurons, this decoder generalizes
+        within a session, not across sessions. Making a decoder transfer to a new session would
+        require matching neurons across recordings or learning a shared latent space, and then
+        decoding. That is a natural next step beyond this course.
 
-        *You have now read pose, read time, read a map, read behavior, and read a brain — with one
-        toolbox.*
+        Across the two weeks you have worked with pose, with time, with a low-dimensional map, with a
+        behavior classifier, and now with neural population activity, using one consistent toolbox.
         """
     )
     return
