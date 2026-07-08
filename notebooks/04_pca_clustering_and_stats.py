@@ -123,9 +123,9 @@ def _(N, base_rate, mo, n_ho):
         moving around each other — into **19 allocentric numbers** per event: closing speed, pair
         distance, mutual facing, body length, and so on. Nineteen numbers is a workable description,
         but it raises three questions we have not yet answered, and this notebook answers all three in
-        one long sitting. We are behavioral neuroscientists: we study what animals *do* first, and its
-        neural basis second. To do that we need a description of behavior that is compact, honest, and
-        interpretable.
+        one long sitting. We study social behavior and its neural basis; both rest on an objective
+        account of what animals actually do. To do that we need a description of behavior that is
+        compact, honest, and interpretable.
 
         Our working corpus is **{N:,} approach events** across two independent food-deprivation
         cohorts, with an aggression base rate of **{base_rate:.0%}**. A separate **{n_ho}** events from

@@ -83,11 +83,11 @@ def _(mo):
         # NB01 · Keypoints and identity
         ### *Reading the Social Brain — Week 1*
 
-        We study social behavior. Our long-term aim is to relate what a mouse *does* to what its brain
-        is *doing*, and in Week 2 we work directly with neural recordings. But a neural signal is only
-        interpretable against a trustworthy description of behavior, so we build that description first.
-        Everything this week turns raw tracking data into a clean, comparable readout of what happens
-        when two mice meet.
+        We study social behavior and its neural basis. Our aim is to relate what a mouse *does* to
+        what its brain is *doing*, and in Week 2 we work directly with neural recordings. Behavior and
+        neural activity are two views of the same system, and each is only as useful as our ability to
+        measure it; this week we build the behavioral side of that measurement. Everything this week
+        turns raw tracking data into a clean, comparable readout of what happens when two mice meet.
 
         **The question for this notebook.** *What is behavior, and can we trust how we measure it?*
         We never see the mice directly. We see the output of a pose tracker: a table of body-landmark
@@ -357,34 +357,102 @@ def _(cu, ex_cr, ex_kp, ex_ranks, mo):
 def _(mo):
     mo.md(
         r"""
-        **Not every approach looks the same.** "Behavior" is not one thing, and our first instinct as
-        neuroscientists should be to *look*. Below are two rows of real events rendered the same way.
-        The top row are approaches the lab labelled **aggression**; the bottom row are approaches
-        labelled **non-aggression**. Watch how the aggressive events are faster, tighter, and more
-        head-to-body, while the non-aggressive ones are looser. We are not measuring anything yet —
-        just training the eye on the range of what we will later have to quantify.
+        **Not every approach looks the same.** "Behavior" is not one thing, and a good first step is
+        always to *look*. The clips below are real homecage recordings — the actual video the tracker
+        ran on — with the tracked skeleton drawn on top and each mouse colored by rank (Dom = red,
+        Mid = blue, Sub = green). Seeing the raw video alongside the skeleton is the honest way to
+        judge what a coarse label like "aggression" really refers to. We are not measuring anything
+        yet, just training the eye on the range of what we will later have to quantify.
         """
     )
     return
 
 
 @app.cell
-def _(cu, ev, mo):
-    # Two grids of visibly different interactions, rendered so students SEE the behavioral range
-    # before any number is computed. Indices are reliability-gated so they render cleanly.
-    _agg = [969, 560, 53]                              # labelled aggression
-    _non = [161, 341, 376]                             # labelled non-aggression
-    _g_agg = cu.grid_gif_bytes([(ev["kp"][i], ev["ranks"][i], int(ev["contact_rel"][i]))
-                                for i in _agg], ncols=3, cell=180, fps=18)
-    _g_non = cu.grid_gif_bytes([(ev["kp"][i], ev["ranks"][i], int(ev["contact_rel"][i]))
-                                for i in _non], ncols=3, cell=180, fps=18)
+def _(cu, mo):
+    # Video-backed exemplars: real homecage frames with the rank-colored skeleton overlaid, loaded
+    # from data/exemplar_gifs/ (cu.load_asset_gif downloads them on a bare molab kernel). These five
+    # are the genuinely fast, close, and directed approaches the lab labelled aggression — the
+    # approacher drives straight at the partner and the gap collapses within a few frames.
+    _fast = ["fast_directed_1.gif", "fast_directed_2.gif", "fast_directed_3.gif",
+             "fast_directed_4.gif", "fast_directed_5.gif"]
+    _html = "".join(cu.gif_img_html(cu.load_asset_gif(_n), width=195) for _n in _fast)
     mo.vstack([
-        mo.md(f"**Aggression (events {_agg}).** Fast, close, and directed — the approacher drives "
-              "into the partner."),
-        mo.Html(cu.gif_img_html(_g_agg, width=560)),
-        mo.md(f"**Non-aggression (events {_non}).** The same three-mouse scene, but the movement is "
-              "slower and the bodies stay looser. Colors are by rank in every panel."),
-        mo.Html(cu.gif_img_html(_g_non, width=560)),
+        mo.md("**Fast, close, directed approaches (labelled aggression).** In every clip the "
+              "approacher moves fast and straight at the partner and the distance between them "
+              "collapses within a few frames — the closing is sustained and purposeful, not a slow "
+              "drift. This is what the coarse label \"aggression\" looks like on the raw video."),
+        mo.Html(_html),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        **Finer than "aggression."** "Aggression" is a coarse bucket. Within it the lab distinguishes
+        finer bouts that look different on the video and mean different things:
+
+        - **tail bite** — the aggressor's nose reaches the partner's tail base and bites; the two
+          bodies line up nose-to-tail and the minimum inter-mouse distance goes to zero.
+        - **mounting** — one mouse climbs over the other's rear, a distinct posture rather than a
+          straight charge.
+        - **pursuit (a chasing proxy)** — both mice move fast at once, roughly two to three times the
+          speed of an ordinary approach: one flees and the other follows.
+
+        Seeing these side by side shows why a single "aggression" label is not enough — the same word
+        covers a bite, a mount, and a chase.
+        """
+    )
+    return
+
+
+@app.cell
+def _(cu, mo):
+    # Fine-grained aggressive bouts, all video-backed. tail_bite (nose-to-tail-base bite), mounting
+    # (climbing posture), and pursuit (both mice fast = chase/flight). "chasing" is a proxy: the
+    # bundle has no explicit chasing category, so these are the fastest two-mouse aggression events.
+    _row = lambda _names: mo.Html("".join(cu.gif_img_html(cu.load_asset_gif(_x), width=200)
+                                          for _x in _names))
+    mo.vstack([
+        mo.md("**Tail bite.** The aggressor's nose reaches the partner's tail base; the bodies align "
+              "nose-to-tail and the minimum inter-mouse distance drops to zero."),
+        _row(["tail_bite_1.gif", "tail_bite_2.gif"]),
+        mo.md("**Mounting.** One mouse climbs over the other's rear — a posture, not a charge. Only a "
+              "few clean mounting events exist in this data, so treat these two as illustrations."),
+        _row(["mounting_1.gif", "mounting_2.gif"]),
+        mo.md("**Pursuit (chasing proxy).** Both mice move fast at once — roughly 2-3x an ordinary "
+              "approach — as one flees and the other follows. The bundle has no explicit chasing "
+              "label, so these high-speed aggression events stand in for pursuit."),
+        _row(["chasing_1.gif", "chasing_2.gif"]),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+        **And most contact is not a fight.** For contrast, here is the same rendering on
+        non-aggressive social contact — investigation and grooming. The movement is slower and looser
+        and the bodies do not drive together the way the aggressive bouts do. Keeping these in view
+        guards against reading every approach as a fight.
+        """
+    )
+    return
+
+
+@app.cell
+def _(cu, mo):
+    # Non-aggressive social contact, video-backed: anogenital investigation, side-by-side contact,
+    # and allogrooming. Slower and looser, with no sustained drive-in. Colors are by rank as above.
+    _affil = ["anogenital_1.gif", "side_kissing_1.gif", "grooming_1.gif"]
+    _html = "".join(cu.gif_img_html(cu.load_asset_gif(_n), width=200) for _n in _affil)
+    mo.vstack([
+        mo.md("**Non-aggressive social contact.** Left to right: anogenital investigation, "
+              "side-by-side contact, and grooming. Colors are by rank, exactly as above."),
+        mo.Html(_html),
     ])
     return
 

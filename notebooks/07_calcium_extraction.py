@@ -81,8 +81,7 @@ def _(mo):
 
         ### What calcium imaging is, in plain terms
 
-        We are neuroscientists studying how the brain produces social behavior, and to do that we have to
-        watch neurons work. We cannot see electrical firing directly through a microscope, so we use a
+        To study how the brain produces social behavior, we have to watch neurons work. We cannot see electrical firing directly through a microscope, so we use a
         proxy.
 
         - **Neuron firing → calcium.** When a neuron fires, calcium ions rush into the cell. The internal

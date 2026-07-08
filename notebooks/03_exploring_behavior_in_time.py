@@ -65,7 +65,7 @@ def _(mo):
 
         ## The question so far, and the question now
 
-        We are neuroscientists who study social behavior. In the first notebooks we turned raw video
+        We study social behavior and its neural basis. In the first notebooks we turned raw video
         into **pose**: for each mouse, in every video frame, the pixel position of 15 body
         **keypoints** (a keypoint is a labelled dot on the body — nose, ears, shoulders, tail base).
         We then rebuilt each interaction from a **body's-eye view** and reduced it to **19 numbers per

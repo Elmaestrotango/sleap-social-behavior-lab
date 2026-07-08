@@ -636,6 +636,22 @@ def _group_order(groups, group_order=None):
     return list(group_order) if group_order is not None else list(dict.fromkeys(np.asarray(groups).tolist()))
 
 
+def _robust_range(v, lo=1.0, hi=99.0, pad=0.05):
+    """[low, high] for a VISIBLE axis clipped to the [lo, hi] percentiles of v (default 1/99) with a
+    little padding, so extreme outliers don't flatten the rest of the cloud (points outside are
+    still plotted, just off the default view). Returns None on too-few/degenerate data."""
+    v = np.asarray(v, float); v = v[np.isfinite(v)]
+    if v.size < 3:
+        return None
+    a, b = (float(z) for z in np.nanpercentile(v, [lo, hi]))
+    if not (np.isfinite(a) and np.isfinite(b)) or b <= a:
+        a, b = float(np.nanmin(v)), float(np.nanmax(v))
+        if b <= a:
+            return None
+    span = b - a
+    return [a - span * pad, b + span * pad]
+
+
 def strip_points_fig(values, groups, group_order=None, colors=None, jitter=0.09,
                      point_size=6, opacity=0.7, show_mean=True, hover=None,
                      title="", xlabel="", ylabel="value", height=430, seed=0):
@@ -785,4 +801,62 @@ def umap_colored_by_feature_fig(emb, feature_values, name="feature", colorscale=
     fig.update_layout(template="plotly_white", height=height,
                       title=title or f"embedding colored by {name}",
                       margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+def scatter_points_fig(x, y, groups=None, group_order=None, colors=None, point_size=7,
+                       opacity=0.75, hover=None, annotate_r=True, robust=True, trendline=True,
+                       title="", xlabel="x", ylabel="y", height=460):
+    """Scatter of individual (x, y) points — one dot per observation, with hover — for showing a
+    CORRELATION honestly (NOT a density). Optionally colored by `groups`. `annotate_r` writes the
+    Pearson r (and p, n), computed on all finite pairs, in a corner box; `trendline` adds the
+    least-squares fit; `robust` clips both visible axes to the [1, 99] percentile so a few extremes
+    don't flatten the cloud (outliers still plotted, off the default view). Returns a plotly Figure.
+    Mirrors course_utils.scatter_points_fig for the neural notebooks (e.g. two readout metrics)."""
+    import plotly.graph_objects as go
+    from scipy.stats import pearsonr
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    fig = go.Figure()
+    if groups is None:
+        txt = None if hover is None else [str(t) for t in np.asarray(hover)]
+        fig.add_scatter(x=x, y=y, mode="markers", showlegend=False, text=txt,
+                        marker=dict(size=point_size, color=_QUAL_PALETTE[0], opacity=opacity,
+                                    line=dict(width=0.5, color="white")),
+                        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                       "%{x:.3f}, %{y:.3f}<extra></extra>"))
+    else:
+        grp = np.asarray(groups)
+        order = _group_order(grp, group_order); cmap = _group_colors(order, colors)
+        hv = None if hover is None else np.asarray(hover)
+        for g in order:
+            m = grp == g
+            txt = [str(t) for t in hv[m]] if hv is not None else None
+            fig.add_scatter(x=x[m], y=y[m], mode="markers", name=str(g), text=txt,
+                            marker=dict(size=point_size, color=cmap[g], opacity=opacity,
+                                        line=dict(width=0.5, color="white")),
+                            hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                           f"{g}: %{{x:.3f}}, %{{y:.3f}}<extra></extra>"))
+    if ok.sum() >= 3:
+        r, p = pearsonr(x[ok], y[ok])
+        if trendline:
+            b1, b0 = np.polyfit(x[ok], y[ok], 1)
+            xr = np.array([float(x[ok].min()), float(x[ok].max())])
+            fig.add_scatter(x=xr, y=b0 + b1 * xr, mode="lines", showlegend=False,
+                            line=dict(color="#555", width=2, dash="dash"), hoverinfo="skip")
+        if annotate_r:
+            fig.add_annotation(xref="paper", yref="paper", x=0.02, y=0.98, xanchor="left",
+                               yanchor="top", showarrow=False,
+                               text=f"r = {r:.3f}<br>p = {p:.2g}  (n = {int(ok.sum())})",
+                               font=dict(size=13), bgcolor="rgba(255,255,255,0.72)",
+                               bordercolor="#ccc", borderwidth=1, align="left")
+    fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel)
+    if robust:
+        rx = _robust_range(x); ry = _robust_range(y)
+        if rx:
+            fig.update_xaxes(range=rx)
+        if ry:
+            fig.update_yaxes(range=ry)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=groups is not None)
     return fig

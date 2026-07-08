@@ -82,8 +82,8 @@ def _(mo):
 
         ### This is the same idea we already used on behavior
 
-        We are neuroscientists, and we study behavior first and its neural correlates second.
-        The operation in this notebook is not new to us — we already ran it on the body. Back
+        We study social behavior and its neural basis, and the operation in this notebook is not
+        new to us — we already ran it on the body. Back
         in **notebook 4** we took a wide, redundant matrix of behavior features and reduced it
         with **PCA**, replacing many correlated measurements with a few underlying components.
         The verb there was *decompose a mixture into its sources*. That is exactly the verb

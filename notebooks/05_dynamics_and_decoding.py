@@ -81,9 +81,8 @@ def _(mo):
            learned from, but whether it works on animals, and even a whole second experiment, it has
            never seen.
 
-        We are behavioral neuroscientists. We study behavior first and its neural basis second, so
-        getting an objective, reproducible readout of behavior is the foundation everything else rests
-        on. That is what this notebook builds and stress-tests.
+        We study social behavior and its neural basis, and both depend on an objective, reproducible
+        readout of behavior. That is what this notebook builds and stress-tests.
         """
     )
     return

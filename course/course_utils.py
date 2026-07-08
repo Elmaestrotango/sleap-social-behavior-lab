@@ -567,6 +567,19 @@ def gif_img_html(gif, width=200, border="#ddd"):
             f'style="border:1px solid {border};border-radius:6px;margin:3px">')
 
 
+def load_asset_gif(name, root=None):
+    """Return the raw bytes of a pre-rendered exemplar GIF from data/exemplar_gifs/.
+
+    These are small VIDEO-backed clips (real homecage frames + the rank-colored skeleton overlaid),
+    committed to the repo so notebooks show what the behaviors actually look like. Reads the local
+    file if present, else downloads it from REPO_RAW (so a bare cloud kernel / molab works) via the
+    same mechanism as data_path. `name` is the bare filename, e.g. "tail_bite_1.gif". Pair with
+    gif_img_html: ``mo.Html(cu.gif_img_html(cu.load_asset_gif("tail_bite_1.gif")))``."""
+    rel = "data/exemplar_gifs/" + os.path.basename(name)
+    with open(data_path(rel, root), "rb") as f:
+        return f.read()
+
+
 def grid_gif_bytes(events, ncols=3, cell=170, fps=20, pad=6):
     """events: list of (kp_event, ranks, contact_rel). Tile them into an ncols grid GIF, looping
     over the shortest common length. Returns GIF bytes."""
@@ -1019,13 +1032,31 @@ def _group_order(groups, group_order=None):
     return list(group_order) if group_order is not None else list(dict.fromkeys(np.asarray(groups).tolist()))
 
 
+def _robust_range(v, lo=1.0, hi=99.0, pad=0.05):
+    """Return [low, high] for a VISIBLE axis clipped to the [lo, hi] percentiles of v (default 1/99)
+    with a little padding — so a handful of extreme outliers don't flatten the rest of the cloud.
+    Points outside this window are still plotted, just off the default view. Returns None if v has
+    too few finite values or a degenerate spread (caller then leaves the axis auto-ranged)."""
+    v = np.asarray(v, float); v = v[np.isfinite(v)]
+    if v.size < 3:
+        return None
+    a, b = (float(z) for z in np.nanpercentile(v, [lo, hi]))
+    if not (np.isfinite(a) and np.isfinite(b)) or b <= a:
+        a, b = float(np.nanmin(v)), float(np.nanmax(v))
+        if b <= a:
+            return None
+    span = b - a
+    return [a - span * pad, b + span * pad]
+
+
 def strip_points_fig(values, groups, group_order=None, colors=None, jitter=0.09,
                      point_size=6, opacity=0.7, show_mean=True, hover=None,
-                     title="", xlabel="", ylabel="value", height=430, seed=0):
+                     title="", xlabel="", ylabel="value", height=430, seed=0, robust=True):
     """Categorical strip plot: EVERY individual data point, jittered horizontally, colored by group,
     with a hover readout — the honest replacement for a bar-of-means. A short horizontal line marks
     each group mean. `values` (N,) numeric; `groups` (N,) categorical labels; optional `hover` (N,)
-    per-point text (e.g. event index). Returns a plotly Figure."""
+    per-point text (e.g. event index). `robust` clips the value axis to the [1, 99] percentile so
+    outliers don't skew the view (points still plotted). Returns a plotly Figure."""
     import plotly.graph_objects as go
     values = np.asarray(values, float); groups = np.asarray(groups)
     order = _group_order(groups, group_order)
@@ -1052,15 +1083,21 @@ def strip_points_fig(values, groups, group_order=None, colors=None, jitter=0.09,
     fig.update_xaxes(tickmode="array", tickvals=list(range(len(order))),
                      ticktext=[str(g) for g in order], title=xlabel)
     fig.update_yaxes(title=ylabel)
+    if robust:
+        ry = _robust_range(values)
+        if ry:
+            fig.update_yaxes(range=ry)
     fig.update_layout(template="plotly_white", height=height, title=title,
                       margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
     return fig
 
 
 def violin_points_fig(values, groups, group_order=None, colors=None, points="all",
-                      show_box=True, title="", xlabel="", ylabel="value", height=450):
+                      show_box=True, title="", xlabel="", ylabel="value", height=450,
+                      robust=True):
     """Violin (kernel-density silhouette) per group with the raw points overlaid and a mean line —
-    shows the full shape of each distribution AND every observation. Args as `strip_points_fig`."""
+    shows the full shape of each distribution AND every observation. `robust` clips the value axis
+    to the [1, 99] percentile (outliers still plotted). Args as `strip_points_fig`."""
     import plotly.graph_objects as go
     values = np.asarray(values, float); groups = np.asarray(groups)
     order = _group_order(groups, group_order)
@@ -1073,15 +1110,20 @@ def violin_points_fig(values, groups, group_order=None, colors=None, points="all
                                 box_visible=show_box, meanline_visible=True,
                                 marker=dict(size=5, opacity=0.6)))
     fig.update_yaxes(title=ylabel); fig.update_xaxes(title=xlabel)
+    if robust:
+        ry = _robust_range(values)
+        if ry:
+            fig.update_yaxes(range=ry)
     fig.update_layout(template="plotly_white", height=height, title=title,
                       margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
     return fig
 
 
 def box_points_fig(values, groups, group_order=None, colors=None, title="",
-                   xlabel="", ylabel="value", height=450):
+                   xlabel="", ylabel="value", height=450, robust=True):
     """Box-and-whisker per group with ALL points overlaid (jittered) — quartiles plus every raw
-    observation. Args as `strip_points_fig`."""
+    observation. `robust` clips the value axis to the [1, 99] percentile (outliers still plotted).
+    Args as `strip_points_fig`."""
     import plotly.graph_objects as go
     values = np.asarray(values, float); groups = np.asarray(groups)
     order = _group_order(groups, group_order)
@@ -1093,16 +1135,23 @@ def box_points_fig(values, groups, group_order=None, colors=None, title="",
                              marker=dict(size=4, color=cmap[g], opacity=0.6),
                              line=dict(color=cmap[g]), fillcolor="rgba(0,0,0,0)"))
     fig.update_yaxes(title=ylabel); fig.update_xaxes(title=xlabel)
+    if robust:
+        ry = _robust_range(values)
+        if ry:
+            fig.update_yaxes(range=ry)
     fig.update_layout(template="plotly_white", height=height, title=title,
                       margin=dict(l=10, r=10, t=50, b=10), showlegend=len(order) > 1)
     return fig
 
 
 def kde2d_fig(x, y, gridsize=120, colorscale="Viridis", show_points=True, point_color="#333333",
-              hover=None, title="", xlabel="x", ylabel="y", height=480, bw_method=None):
+              hover=None, title="", xlabel="x", ylabel="y", height=480, bw_method=None,
+              robust=True):
     """2-D density via scipy.stats.gaussian_kde: a filled contour of where (x, y) pairs concentrate,
     with the raw points optionally overlaid. Use it for two-feature joint distributions (e.g. speed
-    vs distance) instead of an opaque scatter. `x`, `y` (N,) numeric. Returns a plotly Figure."""
+    vs distance) instead of an opaque scatter. `x`, `y` (N,) numeric. `robust` clips BOTH visible
+    axes to the [1, 99] percentile so outliers don't stretch the view (the KDE is still computed on
+    the full data; points outside stay plotted). Returns a plotly Figure."""
     import plotly.graph_objects as go
     from scipy.stats import gaussian_kde
     x = np.asarray(x, float); y = np.asarray(y, float)
@@ -1121,8 +1170,72 @@ def kde2d_fig(x, y, gridsize=120, colorscale="Viridis", show_points=True, point_
                         hovertemplate=(("%{text}<br>" if txt is not None else "") +
                                        "%{x:.2f}, %{y:.2f}<extra></extra>"))
     fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel)
+    if robust:
+        rx = _robust_range(x); ry = _robust_range(y)
+        if rx:
+            fig.update_xaxes(range=rx)
+        if ry:
+            fig.update_yaxes(range=ry)
     fig.update_layout(template="plotly_white", height=height, title=title,
                       margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+def scatter_points_fig(x, y, groups=None, group_order=None, colors=None, point_size=7,
+                       opacity=0.75, hover=None, annotate_r=True, robust=True, trendline=True,
+                       title="", xlabel="x", ylabel="y", height=460):
+    """Scatter of individual (x, y) points — one dot per observation, with hover — for showing a
+    CORRELATION honestly (NOT a density: use kde2d_fig for that). Optionally colored by `groups`.
+    `annotate_r` writes the Pearson r (and p, n), computed on all finite pairs, in a corner box;
+    `trendline` adds the least-squares fit line; `robust` clips both visible axes to the [1, 99]
+    percentile so a few extremes don't flatten the cloud (outlier points are still plotted, just
+    off the default view). Returns a plotly Figure."""
+    import plotly.graph_objects as go
+    from scipy.stats import pearsonr
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    fig = go.Figure()
+    if groups is None:
+        txt = None if hover is None else [str(t) for t in np.asarray(hover)]
+        fig.add_scatter(x=x, y=y, mode="markers", showlegend=False, text=txt,
+                        marker=dict(size=point_size, color="#4c78a8", opacity=opacity,
+                                    line=dict(width=0.5, color="white")),
+                        hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                       "%{x:.3f}, %{y:.3f}<extra></extra>"))
+    else:
+        grp = np.asarray(groups)
+        order = _group_order(grp, group_order); cmap = _group_colors(order, colors)
+        hv = None if hover is None else np.asarray(hover)
+        for g in order:
+            m = grp == g
+            txt = [str(t) for t in hv[m]] if hv is not None else None
+            fig.add_scatter(x=x[m], y=y[m], mode="markers", name=str(g), text=txt,
+                            marker=dict(size=point_size, color=cmap[g], opacity=opacity,
+                                        line=dict(width=0.5, color="white")),
+                            hovertemplate=(("%{text}<br>" if txt is not None else "") +
+                                           f"{g}: %{{x:.3f}}, %{{y:.3f}}<extra></extra>"))
+    if ok.sum() >= 3:
+        r, p = pearsonr(x[ok], y[ok])
+        if trendline:
+            b1, b0 = np.polyfit(x[ok], y[ok], 1)
+            xr = np.array([float(x[ok].min()), float(x[ok].max())])
+            fig.add_scatter(x=xr, y=b0 + b1 * xr, mode="lines", showlegend=False,
+                            line=dict(color="#555", width=2, dash="dash"), hoverinfo="skip")
+        if annotate_r:
+            fig.add_annotation(xref="paper", yref="paper", x=0.02, y=0.98, xanchor="left",
+                               yanchor="top", showarrow=False,
+                               text=f"r = {r:.3f}<br>p = {p:.2g}  (n = {int(ok.sum())})",
+                               font=dict(size=13), bgcolor="rgba(255,255,255,0.72)",
+                               bordercolor="#ccc", borderwidth=1, align="left")
+    fig.update_xaxes(title=xlabel); fig.update_yaxes(title=ylabel)
+    if robust:
+        rx = _robust_range(x); ry = _robust_range(y)
+        if rx:
+            fig.update_xaxes(range=rx)
+        if ry:
+            fig.update_yaxes(range=ry)
+    fig.update_layout(template="plotly_white", height=height, title=title,
+                      margin=dict(l=10, r=10, t=50, b=10), showlegend=groups is not None)
     return fig
 
 

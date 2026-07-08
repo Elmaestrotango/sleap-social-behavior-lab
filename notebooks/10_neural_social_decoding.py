@@ -94,8 +94,8 @@ def _(mo):
 
         **The dataset.** A social-isolation cohort: a focal mouse is either group-housed (**control**)
         or isolated for **24 hours** or **7 days**, then reintroduced to a partner while calcium
-        activity in its striatum is imaged. Eighteen sessions, six per condition. We are
-        neuroscientists studying a social behavior first, and its neural correlate second.
+        activity in its striatum is imaged. Eighteen sessions, six per condition. We study this
+        social behavior and its neural correlate together, with neither treated as primary.
         """
     )
     return

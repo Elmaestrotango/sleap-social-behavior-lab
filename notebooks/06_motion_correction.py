@@ -68,7 +68,7 @@ def _(mo):
         aggression decoder that held up across two independent cohorts. We can now read what a mouse
         does, objectively, from tracked points.
 
-        Week 2 asks the other half of the question every behavioral neuroscientist cares about: **what
+        Week 2 asks the other half of the question this course is built around: **what
         is the brain doing while the mouse behaves?** To relate neural activity to behavior we first
         have to *record* neurons and read their activity cleanly. Those recordings are movies. This
         notebook asks the very first question standing between a raw movie and a usable neural signal:
@@ -101,9 +101,9 @@ def _(mo):
         This is the same class of problem we already solved for behavior. In Week 1 a pose track was
         meaningless until we stabilized identity — until "mouse 2 at frame 500" was guaranteed to be the
         same animal as "mouse 2 at frame 501." Aligning a signal across time before reading it is a
-        general step, and imaging needs it just as much as pose tracking does. We are neuroscientists;
-        we study behavior first and neural correlates second, and both halves depend on the same
-        discipline of not reading a signal until it holds still.
+        general step, and imaging needs it just as much as pose tracking does. Behavior and its neural
+        basis are two halves of the same study, and both depend on the same discipline of not reading a
+        signal until it holds still.
 
         ## Rigid vs piecewise-rigid — two flavors of "hold it still"
 

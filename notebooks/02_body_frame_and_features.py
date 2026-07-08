@@ -72,7 +72,9 @@ def _(mo):
 
         ### Why this matters
 
-        We study social behavior. A behavior — an attack, a sniff, a chase — is the *same behavior*
+        We study social behavior and its neural basis; neither is treated as primary — the behavior and
+        the circuits that produce it are two views of one system. A behavior — an attack, a sniff, a
+        chase — is the *same behavior*
         whether it happens in the top-left corner of the cage or the bottom-right, and whether the two
         mice face north or south. Raw pixel coordinates do not capture that: the identical behavior in
         two locations produces completely different numbers, because the numbers describe *where in the
@@ -550,17 +552,21 @@ def _(mo):
 
         This is the payoff of the body-centered choice. Take the example event and apply a **rigid
         motion** to the *entire scene*: rotate the whole cage by some angle and slide it somewhere else.
-        Then compare two kinds of measurement:
+        On the **left** the whole interaction visibly turns — the raw pixel coordinates swing with the
+        cage. On the **right** is a single live table that reads out, side by side, two kinds of
+        quantity computed on that same warped event:
 
-        - **Arena-frame measurements** (the small table) — the approacher's absolute heading angle and
-          its centroid position in the cage. These **change** with the warp, because they describe where
-          the mouse is and which way it points in the arena.
-        - **Body-frame features** (the scatter) — the 19 numbers from `features_one`. These stay
-          **frozen**. Each dot compares one feature's value *before* the warp (x-axis) to its value
-          *after* the warp (y-axis); every dot lands exactly on the diagonal `y = x`, no matter the
-          angle, because every feature is measured *between* the mice, not against the arena walls.
+        - **Body-frame features** — the 19 numbers from `features_one`, each marked **invariant**. Their
+          *original* and *warped* values are identical to within rounding (the `change` column is
+          essentially zero) no matter the angle, because every feature is measured *between* the mice,
+          not against the arena walls.
+        - **Arena-frame measurements** — the approacher's absolute heading angle and its centroid
+          position in the cage, each marked **CHANGES**. These move on every turn of the slider, because
+          they describe where the mouse is and which way it points in the arena.
 
-        Drag the angle. The table changes on every turn; the dots never leave the diagonal.
+        Drag the angle and read down the table. The `change` column stays at zero for every invariant
+        feature while the three arena-frame rows swing. That contrast **is** the definition of
+        invariance — far more directly than a plot of points that never move.
         """
     )
     return
@@ -585,25 +591,8 @@ def _(EX, cu, feat_names, go, inv_angle, kp, mo, np):
     _f1 = cu.features_one(_warp)                            # 19 features, after the rigid warp
     _maxdiff = float(np.nanmax(np.abs(_f0 - _f1)))
 
-    # right: 19 features as points, original (x) vs warped (y). All should sit on the diagonal.
-    _lo = float(min(np.nanmin(_f0), np.nanmin(_f1)))
-    _hi = float(max(np.nanmax(_f0), np.nanmax(_f1)))
-    _pad = 0.05 * (_hi - _lo + 1e-6)
-    _right = go.Figure()
-    _right.add_scatter(x=[_lo - _pad, _hi + _pad], y=[_lo - _pad, _hi + _pad], mode="lines",
-                       line=dict(color="#bbb", dash="dot"), name="y = x", hoverinfo="skip")
-    _right.add_scatter(x=_f0, y=_f1, mode="markers", name="a feature",
-                       marker=dict(size=9, color="#4c78a8", opacity=0.8,
-                                   line=dict(width=0.5, color="white")),
-                       text=feat_names,
-                       hovertemplate="%{text}<br>original %{x:.3f} → warped %{y:.3f}<extra></extra>")
-    _right.update_layout(template="plotly_white", height=460, showlegend=False,
-                         title=f"19 body-frame features — frozen (max |Δ| = {_maxdiff:.2e})",
-                         xaxis_title="feature value, original event",
-                         yaxis_title="feature value, warped event",
-                         margin=dict(l=10, r=10, t=50, b=10))
-
-    # left: raw node cloud at contact, original vs warped -> the coordinates clearly move
+    # left: raw node cloud at contact, original vs warped -> the coordinates (the whole interaction)
+    # clearly swing with the cage.
     _t = _ev.shape[0] // 2
     _p0 = _ev[_t].reshape(-1, 2); _p0 = _p0[np.isfinite(_p0).all(1)]
     _p1 = _warp[_t].reshape(-1, 2); _p1 = _p1[np.isfinite(_p1).all(1)]
@@ -614,8 +603,8 @@ def _(EX, cu, feat_names, go, inv_angle, kp, mo, np):
                       marker=dict(color="#d62728", size=6), name="rotated + moved")
     _left.update_yaxes(scaleanchor="x", scaleratio=1, showgrid=False)
     _left.update_xaxes(showgrid=False)
-    _left.update_layout(template="plotly_white", height=460,
-                        title="RAW pixel coordinates — they swing", legend=dict(y=1.0),
+    _left.update_layout(template="plotly_white", height=520,
+                        title="RAW pixel coordinates — the whole interaction swings", legend=dict(y=1.0),
                         margin=dict(l=10, r=10, t=50, b=10))
 
     # arena-frame quantities that DO change: heading angle + centroid position (mid frame)
@@ -628,22 +617,32 @@ def _(EX, cu, feat_names, go, inv_angle, kp, mo, np):
         return _hd, float(_cn[0]), float(_cn[1])
     _h0, _x0, _y0 = _arena_meas(_ev)
     _h1, _x1, _y1 = _arena_meas(_warp)
+
+    # RIGHT (replaces the old "features frozen on the diagonal" scatter): one live table listing every
+    # feature's value before vs after the warp, marked invariant vs changing. The 19 body-frame
+    # features are invariant (change ~ 0); the three arena-frame rows CHANGE with the slider.
+    _rows = [f"| `{_nm}` | invariant | {_a:.3f} | {_b:.3f} | {abs(_a - _b):.1e} |"
+             for _nm, _a, _b in zip(feat_names, _f0, _f1)]
+    _rows += [
+        f"| approacher heading (deg) | **CHANGES** | {_h0:+.1f} | {_h1:+.1f} | {abs(_h1 - _h0):.1f} |",
+        f"| approacher centroid x (px) | **CHANGES** | {_x0:.0f} | {_x1:.0f} | {abs(_x1 - _x0):.0f} |",
+        f"| approacher centroid y (px) | **CHANGES** | {_y0:.0f} | {_y1:.0f} | {abs(_y1 - _y0):.0f} |",
+    ]
     _table = mo.md(
         f"""
-        **Arena-frame measurements — these DO change**
+        **Feature-by-feature readout at arena rotation β = {inv_angle.value}°**
+        (largest body-frame change across all 19 features: |Δ| = {_maxdiff:.2e} — numerically zero)
 
-        | measurement | original | warped |
-        |---|---:|---:|
-        | approacher heading (deg) | {_h0:+.1f} | {_h1:+.1f} |
-        | approacher centroid x (px) | {_x0:.0f} | {_x1:.0f} |
-        | approacher centroid y (px) | {_y0:.0f} | {_y1:.0f} |
+        | quantity | kind | original | warped | change |
+        |---|---|---:|---:|---:|
+        {chr(10).join("        " + _r for _r in _rows)}
 
-        The heading and position move with every turn of the slider, because they are defined against
-        the arena. The 19 features to the right do not. That contrast **is** the definition of
-        invariance.
+        Every row marked **invariant** has an identical original and warped value (`change` ≈ 0),
+        no matter the angle. The three **CHANGES** rows — heading and centroid position, defined
+        against the arena — move on every turn. That is exactly what "arena-invariant" means.
         """
     )
-    mo.vstack([inv_angle, mo.hstack([_left, _right], widths=[1, 1]), _table])
+    mo.vstack([inv_angle, mo.hstack([_left, _table], widths=[1, 1])])
     return
 
 
@@ -780,7 +779,7 @@ def _(X, agg, cu, feat_names, feat_pick, mo, np):
 
     _violin = cu.violin_points_fig(
         _vals, _grp, group_order=["not aggression", "aggression"], colors=_cols,
-        ylabel=feat_pick.value,
+        ylabel=feat_pick.value, robust=True,   # clip the value axis to [1, 99] pct so outliers don't skew it
         title=f"{feat_pick.value}   ·   Mann–Whitney {_ptxt}   ·   Cohen's d = {_d:+.2f}",
         height=440)
     _ecdf = cu.ecdf_fig(
@@ -795,11 +794,15 @@ def _(mo):
     mo.md(
         r"""
         One more piece of EDA before the exercise. The 19 features are **not independent** — many carry
-        overlapping information. The 2-D density below plots two of them against each other,
-        `pair_dist_mean` vs `pair_dist_min`. They track each other tightly: events where the mice are far
-        apart on average are also events where their closest approach is far. When features are this
-        redundant, 19 numbers are really only a handful of independent directions — which is exactly the
-        motivation for the dimensionality reduction we take up in **NB03**.
+        overlapping information. To see a correlation honestly, plot the two features against each other
+        as **individual points** (one dot per event, hover for its index) rather than a density blob:
+        the scatter below shows `pair_dist_mean` vs `pair_dist_min`, with the least-squares fit line and
+        the **Pearson r** annotated in the corner. `r` runs from −1 (perfect anti-correlation) through 0
+        (unrelated) to +1 (perfectly linearly related). The two features track each other tightly (large
+        positive `r`): events where the mice are far apart on average are also events where their closest
+        approach is far. When features are this redundant, 19 numbers are really only a handful of
+        independent directions — which is exactly the motivation for the dimensionality reduction we take
+        up in **NB03**.
         """
     )
     return
@@ -809,10 +812,14 @@ def _(mo):
 def _(X, cu, feat_names, np):
     _i = feat_names.index("pair_dist_mean")
     _j = feat_names.index("pair_dist_min")
-    cu.kde2d_fig(X[:, _i], X[:, _j], hover=np.arange(len(X)),
-                 xlabel="pair_dist_mean (px)", ylabel="pair_dist_min (px)",
-                 title="Two features that move together — 19 numbers are not 19 independent facts",
-                 height=460)
+    # Individual points (NOT a density) with an annotated Pearson r — the honest way to show a
+    # correlation. Robust axes clip to the 1st/99th percentile so a few far-apart events do not
+    # compress the bulk of the cloud (those outliers are still plotted, just off the default view).
+    cu.scatter_points_fig(
+        X[:, _i], X[:, _j], hover=np.arange(len(X)), annotate_r=True, trendline=True, robust=True,
+        xlabel="pair_dist_mean (px)", ylabel="pair_dist_min (px)",
+        title="Two features that move together — 19 numbers are not 19 independent facts",
+        height=460)
     return
 
 
@@ -895,6 +902,7 @@ def _(agg, cu, np, rate_calm, rate_spun, spun, thr, turn):
     _cols = {_order[0]: "#7f7f7f", _order[1]: cu.RANK_HEX[1]}
     cu.violin_points_fig(
         turn, _grp, group_order=_order, colors=_cols, ylabel="appe_angvel (turning rate)",
+        robust=True,   # clip the value axis to [1, 99] pct so a few extreme turners don't skew the view
         title=f"Median split on approachee turning rate (threshold {thr:.3f})",
         height=440)
     return

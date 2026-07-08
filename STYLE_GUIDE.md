@@ -17,8 +17,8 @@ Each notebook must still export cleanly headless.
   includes: "the crisis", "the reversal", "the gut-punch", "the bet", "forbidden fruit", "the hunt",
   "graduation", "cash the check", "the threat", "the payoff", exclamatory hype, and ominous
   foreshadowing ("You are about to meet that problem in its rawest form."). State things directly.
-- Keep a **light, professional framing**: the student is a behavioral neuroscientist studying social
-  behavior. State that plainly, not cinematically.
+- Keep a **light, professional framing**: the student studies social behavior and its neural basis.
+  State that plainly, not cinematically.
 - Drop email-style "FROM: Circuit Team → TO: Behavior Team" cold-open theatrics; open with the
   scientific purpose instead.
 
@@ -30,9 +30,9 @@ Each notebook must still export cleanly headless.
 > hand-scoring won't survive review."
 
 > **RIGHT REGISTER:**
-> "Your job as a behavioral neuroscientist will be to study the role of the mPFC in social behavior.
-> However, to understand behavior, we need a clearer understanding of what behavior IS. Today we will
-> be using SLEAP, a software that ..."
+> "Your job will be to study the role of the mPFC in social behavior. However, to understand behavior,
+> we need a clearer understanding of what behavior IS. Today we will be using SLEAP, a software that
+> ..."
 
 ---
 
@@ -194,12 +194,14 @@ previous notebook answered and stating the question **this** notebook asks, and 
 the answer reached and the next question it raises. A logical chain of scientific questions, not a
 numeric tracker. (Section 8's Gauge-A bug note is now moot — the board is gone.)
 
-## R3.2 We are neuroscientists
+## R3.2 Behavior and its neural basis, no hierarchy
 
-We **are** neuroscientists; we study behavior first and neural correlates second. Remove any wording
-that treats the behavioral work as aspiring-to or validated-by "real" neuroscience ("with the same
-rigor as neuroscientists", "this is how neuroscientists do it" used as external validation, etc.).
-Write confidently in the **first person plural** ("we quantify…", "we ask…").
+We study social behavior and its neural basis; neither is treated as primary or as coming "first."
+Do not self-label the student as a "behavioral neuroscientist" as an identity, and do not claim we
+study behavior first and neural data second. Remove any wording that treats the behavioral work as
+aspiring-to or validated-by "real" neuroscience ("with the same rigor as neuroscientists", "this is
+how neuroscientists do it" used as external validation, etc.). Write confidently in the **first person
+plural** ("we quantify…", "we ask…").
 
 ## R3.3 Much longer, deeper notebooks (~4 h each)
 
