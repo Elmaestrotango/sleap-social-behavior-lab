@@ -27,7 +27,8 @@ os.chdir(_HERE)
 
 _NB = os.path.join(_HERE, "notebooks")
 
-# Landing page at "/", then the eight lessons in order at /01 .. /08.
+# Landing page at "/", then the fourteen lessons in order at /01 .. /14
+# (Week 1: pose/behavior 01–08; Week 2: the neural twin 09–14).
 _LESSONS = [
     ("/01", "01_raw_signal.py"),
     ("/02", "02_body_eye_view.py"),
@@ -37,6 +38,12 @@ _LESSONS = [
     ("/06", "06_reading_the_map.py"),
     ("/07", "07_behavior_in_time.py"),
     ("/08", "08_decoder_graduates.py"),
+    ("/09", "09_motion_correction.py"),
+    ("/10", "10_calcium_extraction.py"),
+    ("/11", "11_demixing_sources.py"),
+    ("/12", "12_place_and_grid_cells.py"),
+    ("/13", "13_social_ethograms.py"),
+    ("/14", "14_neural_social_decode.py"),
 ]
 
 _builder = marimo.create_asgi_app().with_app(path="", root=os.path.join(_HERE, "home.py"))

@@ -6,3 +6,4 @@ __marimo__/
 .DS_Store
 data/_scratch/
 *.egg-info/
+data/_neural_cache/

@@ -14,7 +14,7 @@ gives you both a **rank** axis (Dom / Mid / Sub) and an experimental **condition
 
 ## What you'll build
 
-The course runs as **eight** reactive notebooks. Each row links straight to a free
+The course runs as **eight** Week-1 reactive notebooks (plus a Week-2 neural arm below). Each row links straight to a free
 [molab](https://molab.marimo.io) cloud kernel — click **Run** to open that lesson in the browser
 (nothing to install; each notebook self-bootstraps its data).
 
@@ -31,6 +31,23 @@ The course runs as **eight** reactive notebooks. Each row links straight to a fr
 
 Each notebook shows the **equations** behind the method (e.g. the UMAP objective, PCA
 eigendecomposition) and a short **why-we-use-this** justification, not just code.
+
+## Week 2 — The Neural Twin (notebooks 09–14)
+
+Week 2 reuses Week 1's computational moves to read the brain (calcium imaging, demixing, tuning
+curves, neural decoding). Beyond the eight Week-1 lessons above, a second week adds **six neural
+notebooks**: each re-runs one Week-1 idea on neural data instead of pose — same math, new signal —
+and ties itself explicitly to the Week-1 **twin** it mirrors. Notebooks 13 and 14 share the same
+`SI3_2022` social-isolation dataset (behavior in 13, calcium in 14).
+
+| # | Notebook | What it does | Week-1 twin | Run |
+|---|----------|--------------|-------------|-----|
+| 09 | `09_motion_correction` | Register a drifting miniscope movie (raw → rigid → piecewise-rigid) and prove it with a **motion index** | **01** `raw_signal` — align the signal across time before you read it | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/09_motion_correction.py) |
+| 10 | `10_calcium_extraction` | Background-subtract a striatal movie and pull one cell's calcium trace from a hand-placed **ROI** | **02** `body_eye_view` — choosing an ROI *is* choosing a feature | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/10_calcium_extraction.py) |
+| 11 | `11_demixing_sources` | **CNMF** demixes an optical mixture into per-cell footprints `A` + traces `C`; sort them into a neural sequence | **04** `collapse_pca` — decompose a mixture into its sources | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/11_demixing_sources.py) |
+| 12 | `12_place_and_grid_cells` | Occupancy-normalized 2-D **rate maps** + Skaggs spatial information, validated against a shuffle null | **02** `body_eye_view` (tuning) — a rate map is a tuning curve over space | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/12_place_and_grid_cells.py) |
+| 13 | `13_social_ethograms` | Build `(9, T)` social-contact **ethograms** for the SI3_2022 cohort; verify `is_social` and read the isolation effect honestly | **03/05** `signal_in_time` / `collapse_map` — discrete states stacked over time | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/13_social_ethograms.py) |
+| 14 | `14_neural_social_decode` | Train a population **decoder** (LogReg + stratified CV + AUROC) to read social state off calcium on the same SI3_2022 mice | **08** `decoder_graduates` — the same estimator, now reading a brain | [Run](https://molab.marimo.io/github/Elmaestrotango/sleap-social-behavior-lab/blob/main/notebooks/14_neural_social_decode.py) |
 
 ## Quick start
 
@@ -89,6 +106,9 @@ for exactly how each field was derived. `tools/decode_example_slp.py` turns a ra
 small `example_slp_decoded.npz` that notebook 01 loads (so students need no `sleap-io`). These
 tools need `sleap-io`, which is kept out of the default install — get it with `uv sync --extra
 build`.
+
+The Week-2 neural notebooks (09–14) were remade from the original EDGE Colab sources kept in
+[`2025/`](2025/) (the NEU 457 lineage) — one legacy script per neural lesson, preserved for provenance.
 
 ## Skeleton
 

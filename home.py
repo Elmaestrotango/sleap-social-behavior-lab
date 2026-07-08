@@ -33,6 +33,19 @@ def _(mo):
         | 7 | [Behavior in Time](/07) | The transition grammar and activity clock (Markov chain vs shuffle null) |
         | 8 | [The Decoder Graduates](/08) | Train an MLP; unlock held-out Cage 16; decode the neural cousin |
 
+        **Week 2 — The Neural Twin.** The same computational moves, now on the brain:
+        calcium imaging, demixing, tuning curves, and neural decoding. Each lesson mirrors a
+        Week-1 twin.
+
+        | # | Lesson | What you build |
+        |---|--------|----------------|
+        | 9 | [Motion Correction](/09) | Register a drifting miniscope movie; a motion index that proves it (twin of 01) |
+        | 10 | [Extracting a Calcium Trace](/10) | Background-subtract + ROI → one cell's calcium trace (twin of 02) |
+        | 11 | [Demixing the Sources](/11) | CNMF footprints + traces from an optical mixture; a neural sequence (twin of 04) |
+        | 12 | [Place & Grid Cells](/12) | Occupancy-normalized rate maps + Skaggs information, shuffle-tested (twin of 02/tuning) |
+        | 13 | [Social Ethograms](/13) | `(9, T)` social-contact ethograms for the SI3_2022 cohort (twin of 03/05) |
+        | 14 | [Neural Social Decode](/14) | A population decoder reads social state off calcium (twin of 08) |
+
         ---
         Mice are colored by dominance **rank**: 🔴 Dom &nbsp;&nbsp; 🔵 Mid &nbsp;&nbsp; 🟢 Sub.
         """
